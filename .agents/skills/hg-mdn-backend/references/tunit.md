@@ -104,12 +104,14 @@ await Assert.That(score).IsGreaterThan(70);
 await Assert.That(percentage).IsBetween(0, 100);
 await Assert.That(actual).IsEqualTo(expected).Within(0.001);     // double/float/decimal tolerance
 await Assert.That(instance).IsSameReferenceAs(other);            // reference, not value, equality
-await Assert.That(notes.Select(n => n.Title)).IsEquivalentTo(["newer", "older"]);   // collections
+await Assert.That(notes.Select(n => n.Title)).IsEquivalentTo(["newer", "older"], CollectionOrdering.Matching);   // collections, in this order
 
 await Assert.That(() => int.Parse("x")).Throws<FormatException>();                 // exact type or subclass
 await Assert.That(() => Validate(null!)).Throws<ArgumentNullException>().WithParameterName("user");
 await Assert.That(async () => await FailingAsync()).Throws<HttpRequestException>();
 ```
+
+**`IsEquivalentTo` ignores order by default**: an assertion that a list is sorted passes for any order.  Add `CollectionOrdering.Matching` (`using TUnit.Assertions.Enums;`) whenever order is the point; a test of sorting that cannot fail is worse than none.
 
 `IsEqualTo` uses `Equals`/`==`: records and structs get value equality for free.  Message matchers: `WithMessage` (exact), `WithMessageContaining`, `WithMessageNotContaining`, `WithMessageMatching` (regex), `.IgnoringCase()`.
 

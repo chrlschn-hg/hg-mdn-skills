@@ -66,6 +66,10 @@ Test first: the first test of a slice is a handler test.
     <InternalsVisibleTo Include="<PROJECT>.Notes.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Innoloft.LexoRank" />
+    <PackageReference Include="Nanoid" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\<PROJECT>.Api\<PROJECT>.Api.csproj" />
     <ProjectReference Include="..\<PROJECT>.Telemetry\<PROJECT>.Telemetry.csproj" />
   </ItemGroup>

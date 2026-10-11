@@ -35,10 +35,11 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - Authentication is a project choice behind one seam (`Add<PROJECT>Authentication`): Development signs in a configured user; elsewhere secured routes answer 401 until a real scheme replaces the placeholder
 - Handlers return `Results<...>` of `TypedResults`; expected failures are `ApiError` results with a distinct `snake_case` code; validate with explicit guard clauses (DataAnnotations on contracts are OpenAPI metadata, not enforced)
 - Every endpoint sets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` fails `mise run test` and CI without them (`references/openapi-contract.md`)
-- A model change needs a migration (`references/data-efcore.md`).  After a contract change: `dotnet build`, then `mise run generate`
+- A model change needs a migration (`references/data-efcore.md`).  **Multi-tenant?  The tenant id is part of every primary key, composite foreign key, and index; stores take `tenantId`** (decide before the first entity).  UUID v7 is the internal key; where people see ids add a unique short **NanoID** (safe lowercase alphanumeric alphabet); where users reorder rows add a **LexoRank** column (`references/ids-and-ordering.md`)  After a contract change: `dotnet build`, then `mise run generate`
 - Tests are TUnit: `[Test]`, `await Assert.That(...)` (always awaited), `[Arguments]`.  No `[Fact]`, `[Theory]`, `Assert.Equal`, or xUnit packages
 - Test data comes from the **entity graph builder**: customize the real entity with `Action<T>`, never `*Prototype` classes (`references/entity-graph.md`).  Handler tests use hand-written fakes; store tests use the real database, never a mocked `DbContext`
 - Logging: the per-class static logger with `Log.Here()`; spans: `using var activity = <PROJECT>Telemetry.Trace(...)`
+- **Zero warnings: `TreatWarningsAsErrors`.**  A build error with a rule id is the instruction: fix the cause, never `#pragma`-disable it to finish a task; a rule that keeps coming up becomes a banned symbol or a custom Roslyn analyzer (`references/static-analysis.md`).  Mechanical, repeated code is generated: built-in generators first (`[GeneratedRegex]`, `[LoggerMessage]`, `JsonSerializerContext`, Mapperly), then an incremental generator (`references/source-generators.md`)
 - Style is enforced by `.editorconfig` and the build (braces, exhaustive enum switches: name every member, end with `_ => throw new UnreachableException(...)`).  `csharpier format <files>` on everything you touch; `dotnet build` stays warning-free
 - Prefer switch expressions and pattern matching, records for contracts, extension blocks for your own types; no `Task.Run` in request code
 - Comments say *why*: XML-doc every public type and contract parameter; `<remarks>` for the flow, `// NOTE:` for traps
@@ -54,7 +55,8 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | writing endpoints, handlers, contracts, error results | `references/endpoints.md` |
 | securing routes (groups, guards, roles, anonymous routes, the authentication seam) | `references/route-security.md` |
 | writing endpoint descriptions, changing the API the front-end calls, or fixing a failing OpenAPI build | `references/openapi-contract.md` |
-| touching entities, stores, EF configuration, or migrations | `references/data-efcore.md` |
+| touching entities, stores, EF configuration, or migrations; tenant-scoped (multi-tenant) keys | `references/data-efcore.md` |
+| a short, user-facing id (NanoID) next to the UUID, or user-reorderable rows (LexoRank, O(1) moves) | `references/ids-and-ordering.md` |
 | adding settings, secrets, or connection strings | `references/configuration.md` |
 | adding logs, spans, or metrics | `references/telemetry-logging.md` |
 | writing or running tests (test types, fakes, run commands) | `references/testing.md` |
@@ -64,6 +66,8 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | inspecting or patching live code | `references/csharprepl.md` |
 | writing C# (switch expressions, pattern matching, types, comments); side-effect-free core: pure decisions, effects passed as delegates | `references/code-style.md` |
 | parallel or background work, producers and consumers, locks (default: plain `async`/`await`) | `references/concurrency.md` |
+| zero-warning builds, `AnalysisLevel`, banned APIs, writing and testing a custom Roslyn analyzer | `references/static-analysis.md` |
+| repetitive code: built-in source generators, writing and testing an incremental generator | `references/source-generators.md` |
 | checking a library's real API, signatures, or breaking changes before coding against it: `dnx dotnet-inspect` | `references/inspecting-packages.md` |
 
 ## Commands

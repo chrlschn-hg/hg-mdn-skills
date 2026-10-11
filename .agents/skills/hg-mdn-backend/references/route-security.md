@@ -11,7 +11,7 @@ The classes live in `<PROJECT>.Api/Security` (full files: `hg-mdn-scaffold`, `re
 | **Authenticated by default** | the root group | `MapApiRoot()` = `MapGroup(prefix).RequireAuthorization()` | every route |
 | **Explicit exceptions** | one route | `.AllowAnonymous()` + a `// NOTE:` | `GET /health` |
 | **Admin only** | the `/admin` subgroup, by *placement* | admin policy + hidden 404 | `IAdminEndpoint` |
-| **Feature or tenant scope** | the slice's own group | a group guard | `RequireRouteMatchesClaim` |
+| **Feature or tenant scope** | the slice's own group | a group guard (the data side: the tenant id in every key, `data-efcore.md`) | `RequireRouteMatchesClaim` |
 | **Roles and policies** | one route | `.RequireAuthorization(p => p.RequireRole(...))` | `/reports` in `ProbeEndpoints` (test project) |
 | **State checks** | one route (usually mutations) | a guard resolved from DI | `RequireActiveTenantFilter` (test project) |
 

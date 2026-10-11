@@ -146,6 +146,7 @@ public sealed record CreateNoteRequest(
 - **Optional means a default value.**  `string? Body = null` is optional in the contract; `string? Body` is required-but-nullable, so the generated client forces callers to pass `null`.
 - **Validation attributes are OpenAPI metadata only.**  `[Required]` and `[MaxLength]` reach the schema and the generated client but are never enforced on request records (not even with `AddValidation()`).  Back every constraint with a guard clause.
 - Define limits once (`NoteLimits`) and use the constant in the attribute, the guard, and the EF mapping.
+- **Expose the public id, keep the UUID internal**: routes and responses carry the short id (validate its shape before querying); a **move** endpoint takes the row's new neighbors (`beforeId`, `afterId`), never a rank or an index (`ids-and-ordering.md`).
 - Instants are `DateTimeOffset` named `...AtUtc` (`data-efcore.md`).  Enums: switch over them exhaustively (`code-style.md`); string serialization is under "JSON options".
 
 ## Mapping
