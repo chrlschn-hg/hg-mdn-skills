@@ -68,6 +68,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
    | CSharpRepl hook (step 10), LibreDB | yes | 9, 10 |
    | Where the front-end is served: by the runtime in one container, or apart from the API (static host, CDN) | by the runtime | 6, 7, 12 |
    | GitHub Actions (step 13) and a deployment target | CI yes, deploy later | 13 |
+   | Release automation: a dispatched release with the version computed from commit types (0.x until declared), or releasing by pushing a tag, or none | dispatched release (setup on GitHub can wait) | 13 |
 
 1. Install Mise (<https://mise.jdx.dev/llms.txt> has the steps for the user's platform)
   - Install if missing; ensure `mise` is on `PATH` and the shell is activated
@@ -151,7 +152,10 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - See <gotchas /> for what the image does at runtime
 13. Set up GitHub Actions (optional; template: `references/containers-ci.md`)
   - `ci.yml`: backend format check, build, tests (Testcontainers needs Docker); front-end lint, format check, test, build; an image job that builds the Dockerfile and runs `build/smoke.sh` against it
-  - `docker-publish.yml`: image to GHCR on `main` and version tags; `v1.2.3` reports version `1.2.3` (`VERSION` and `GIT_SHA` build args)
+  - `docker-publish.yml`: `latest` and `sha-<commit>` to GHCR on every push to `main` (reports `0.0.0-dev` and the commit)
+  - Releases (optional, skippable; all of it in `references/release.md`): the next version is computed from Conventional Commits (`build/next-version.sh`, 0.x until 1.0.0 is declared) and `release.yml` validates, waits for approval, pushes the versioned image, and creates the GitHub Release and tag
+    - At scaffolding: the files, the edits to other files (mise tasks, `ci.yml`, `AGENTS.md`, `README.md`), and `mise run release-test`
+    - Once the repository is on GitHub: the `production` environment, squash-merge on the PR title, a branch ruleset, package access, then a `dry_run` before the first real release
   - Deployment target (step 0): add deploy steps with OIDC federation, not long-lived secrets
 14. Verify, then hand off.  Done when all hold:
   - `mise run check` passes: builds with 0 warnings, front-end type check, lint, format check, all tests (database tests need Docker; see <gotchas />)

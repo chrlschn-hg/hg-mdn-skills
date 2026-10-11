@@ -12,13 +12,16 @@ Versions are a snapshot: replace each with the latest stable at scaffold time.
   API under `/api` and the front-end at `/` (same origin: no CORS, cookies work).  Serving the front-end
   elsewhere instead (static host, CDN) is the alternative recipe in `hg-mdn-frontend`,
   `references/config-deploy.md`.
-- The version and commit the app reports come in as build args (`VERSION`, `GIT_SHA`): `docker-publish.yml`
-  passes them, `mise run image` passes the commit, and a build without them reports `0.0.0-dev`
-  (`hg-mdn-backend`, `references/build-info.md`, which also explains the `${VERSION:+...}` form).
+- The version and commit the app reports come in as build args (`VERSION`, `GIT_SHA`): the release workflow
+  passes both, `docker-publish.yml` and `mise run image` the commit only, and a build without a version
+  reports `0.0.0-dev` (`hg-mdn-backend`, `references/build-info.md`, which also explains the
+  `${VERSION:+...}` form).
 - Workflows: `ci.yml` (build, test, lint, and an image job that builds the image and smoke-tests it with
-  `build/smoke.sh`, on PRs and `main`) and `docker-publish.yml` (image to GHCR).
-  Deployment depends on the cloud platform chosen in step 2: add deploy steps after publish, using OIDC
-  federation instead of long-lived credentials.
+  `build/smoke.sh`, on PRs and `main`; also called by the release workflow), `docker-publish.yml` (every
+  push to main: `latest` and `sha-<commit>` to GHCR), and the optional release workflow (computed
+  version, approval, versioned image, GitHub Release: `references/release.md`).
+  Deployment depends on the cloud platform chosen in step 2: add deploy steps after publish (and in the
+  release workflow's `ship` job), using OIDC federation instead of long-lived credentials.
 - Action versions are a snapshot: use the latest major of each action.
 
 ## Devcontainer
@@ -339,19 +342,20 @@ jobs:
 
 ### `.github/workflows/docker-publish.yml`
 
-The `build-info` step turns the ref into build args: the commit always, the version on `v*` tags (`v1.2.3` reports `1.2.3`); other pushes report `0.0.0-dev` plus the commit.
+Main builds only: `latest` is the head of main and `sha-<commit>` that commit, and they report `0.0.0-dev` plus the commit.  Versioned images come from the release workflow (`references/release.md`, which also has the tag-triggered variant for projects that release by tagging).
 
 ```yaml
-# Build the runtime image and push it to GitHub Container Registry (ghcr.io/<owner>/<repo>)
-# on pushes to main and on version tags.  Add deployment steps here (or a downstream workflow)
-# for your target platform.
+# Build the runtime image and push it to GitHub Container Registry (ghcr.io/<owner>/<repo>) on
+# every push to main: `latest` is the head of main, `sha-<commit>` is that commit.  These builds
+# report version `0.0.0-dev` plus the commit; a project with a release workflow gets its versioned
+# images from there.  Add deployment steps here (or a downstream workflow) for a continuously
+# deployed environment.
 
 name: Publish image
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
 
 permissions:
   contents: read
@@ -374,22 +378,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tags: `latest` on main, the version on `v*` tags, and the commit SHA on every push.
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
+            type=raw,value=latest
             type=sha
-
-      # What the app reports on /api/health: the commit always, the version on `v*` tags (`v1.2.3`
-      # reports `1.2.3`); other builds report `0.0.0-dev`.
-      - id: build-info
-        run: |
-          echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"; fi
 
       - uses: docker/build-push-action@v7
         with:
@@ -399,8 +394,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            GIT_SHA=${{ steps.build-info.outputs.commit }}
-            VERSION=${{ steps.build-info.outputs.version }}
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 ```
