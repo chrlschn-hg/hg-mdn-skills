@@ -9,7 +9,7 @@ The classes live in `<PROJECT>.Api/Security` (full files: `hg-mdn-scaffold`, `re
 | Layer | Applied at | Mechanism | Example |
 |---|---|---|---|
 | **Authenticated by default** | the root group | `MapApiRoot()` = `MapGroup(prefix).RequireAuthorization()` | every route |
-| **Explicit exceptions** | one route | `.AllowAnonymous()` + a `// NOTE:` | `GET /health` |
+| **Explicit exceptions** | one route | `.AllowAnonymous()` + a `// NOTE:` | `GET /api/health` (and the `/api` 404 catch-all) |
 | **Admin only** | the `/admin` subgroup, by *placement* | admin policy + hidden 404 | `IAdminEndpoint` |
 | **Feature or tenant scope** | the slice's own group | a group guard (the data side: the tenant id in every key, `data-efcore.md`) | `RequireRouteMatchesClaim` |
 | **Roles and policies** | one route | `.RequireAuthorization(p => p.RequireRole(...))` | `/reports` in `ProbeEndpoints` (test project) |
@@ -69,8 +69,8 @@ public static class RouteGroups
 ```
 
 - A slice's `MapEndpoints` receives `root` (or `admin` when it implements `IAdminEndpoint`), so `endpoints.MapGet("/notes", ...)` is authenticated with no attribute.  Securing a route cannot be forgotten; **opening** one is deliberate.
-- Mapped outside the root group and public on purpose: `MapOpenApi` and the Scalar UI (Development only, in `Program.cs`).  Same-origin hosting adds the SPA fallback (`hg-mdn-frontend`, `references/config-deploy.md`).
-- When the API is mapped under a prefix (same-origin hosting), an unmatched-route catch-all under it is `AllowAnonymous()`, so a typo is a 404 for everyone, not a 401.
+- Mapped outside the root group and public on purpose: `MapOpenApi` and the Scalar UI (Development only, in `Program.cs`), and the front-end's static files and fallback (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`: the shell loads before anyone signs in; `references/spa-hosting.md`).
+- The API is mapped under `/api`, and an unmatched-route catch-all under it is `AllowAnonymous()`, so a typo is a JSON 404 for everyone, not a 401 and never the SPA's `index.html`.
 
 ## Opting out: `AllowAnonymous`
 
@@ -81,7 +81,8 @@ public static class RouteGroups
 ```csharp
             .MapGet("/health", (HealthHandler handler) => handler.HandleAsync())
             // NOTE: anonymous on purpose.  Platform probes and smoke tests call it before any
-            // sign-in, and it reveals nothing.  Every other route inherits the root group's
+            // sign-in.  It reveals the status and which build is running (version, commit),
+            // nothing about data or configuration.  Every other route inherits the root group's
             // `RequireAuthorization()`; opening one is a deliberate act like this one.
             .AllowAnonymous()
 ```
@@ -197,8 +198,8 @@ Name the role in the endpoint's `WithDescription` when it is not the default (si
 
 Replacing the placeholder changes nothing else: the groups, guards, and policies already apply.  The scheme must produce the role and tenant claims the policies and guards read.
 
-- **Pipeline order** in `Program.cs`: exception handler, (static files), CORS, `Use<PROJECT>Security()`, then the mapped endpoints.
-- **Cookie auth with a cross-origin front-end** needs credentialed CORS and the same-origin option: `hg-mdn-frontend`, `references/config-deploy.md`.
+- **Pipeline order** in `Program.cs`: exception handler, the front-end's static files (`Use<PROJECT>Spa()`), request logging, `Use<PROJECT>Security()`, the mapped API, then the SPA fallback.
+- **Cookie auth** works as is: the front-end is same-origin, so cookies need no CORS.  Only a front-end hosted apart needs credentialed CORS: `hg-mdn-frontend`, `references/config-deploy.md`.
 - **Roles that can change mid-session:** load them per request in middleware between `UseAuthentication()` and `UseAuthorization()` and add them to the principal; never trust a stale token.  Do not reject there: policies and guards reject, so recovery routes (`GET /me`) stay reachable.
 
 ## Testing
@@ -248,7 +249,11 @@ Assert the **status code** and, for ordering, a side effect (a response header) 
 ```csharp
     // Routes that are public on purpose, as "METHOD pattern".  Adding one is a security decision:
     // the test fails until it is listed here, so the change shows up in review.
-    private static readonly string[] AnonymousRoutes = ["GET /health"];
+    private static readonly string[] AnonymousRoutes =
+    [
+        "GET /api/health",
+        "ANY /api/{**unmatched}", // a typo under /api is a 404 for everyone, not a 401
+    ];
 ```
 
 - `EveryRoute_RequiresAuthorization_OrIsExplicitlyAnonymous` fails if a route has neither authorization nor an explicit opt-out.

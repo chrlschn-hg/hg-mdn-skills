@@ -32,6 +32,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - Read the reference(s) for the work (index below) **before** writing code; copy the shape of an existing slice rather than inventing a layout
 - Business logic goes in feature slices, never the runtime project.  Slices depend on `<PROJECT>.Api`, `<PROJECT>.Telemetry`, and interfaces they define; never on EF Core, `<PROJECT>.Data`, or another slice's internals
 - **Security comes from the group** (`references/route-security.md`).  Slices map onto the secured root group (signed-in users; write no `RequireAuthorization()`), or onto `/admin` with `IAdminEndpoint` (404 for non-admins).  Tenant scope is a group guard; roles and state checks go on the route, cheap guard first.  Opening a route needs `AllowAnonymous()`, a `// NOTE:`, and a line in `RouteSecurityLintTests`
+- **One origin:** the API is mapped under `/api` and the runtime serves the built front-end (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`): no CORS, one container image (`references/spa-hosting.md`).  The build stamps the version and commit the app reports (`references/build-info.md`)
 - Authentication is a project choice behind one seam (`Add<PROJECT>Authentication`): Development signs in a configured user; elsewhere secured routes answer 401 until a real scheme replaces the placeholder
 - Handlers return `Results<...>` of `TypedResults`; expected failures are `ApiError` results with a distinct `snake_case` code; validate with explicit guard clauses (DataAnnotations on contracts are OpenAPI metadata, not enforced)
 - Every endpoint sets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` fails `mise run test` and CI without them (`references/openapi-contract.md`)
@@ -55,6 +56,8 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | writing endpoints, handlers, contracts, error results | `references/endpoints.md` |
 | securing routes (groups, guards, roles, anonymous routes, the authentication seam) | `references/route-security.md` |
 | writing endpoint descriptions, changing the API the front-end calls, or fixing a failing OpenAPI build | `references/openapi-contract.md` |
+| serving the built front-end from the runtime (static files, SPA fallback, the `/api` prefix, cache headers, the container image) | `references/spa-hosting.md` |
+| the running version, commit, and build time: stamping them in the build, `BuildInfo`, `/api/health`, logs, the Docker build args | `references/build-info.md` |
 | touching entities, stores, EF configuration, or migrations; tenant-scoped (multi-tenant) keys | `references/data-efcore.md` |
 | a short, user-facing id (NanoID) next to the UUID, or user-reorderable rows (LexoRank, O(1) moves) | `references/ids-and-ordering.md` |
 | adding settings, secrets, or connection strings | `references/configuration.md` |

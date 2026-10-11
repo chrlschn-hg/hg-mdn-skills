@@ -72,13 +72,13 @@ NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using Microsoft.Enti
 
 ```bash
 # replace: verify with a real HTTP call, then revert
-NO_COLOR=1 csharprepl connect $PID --eval '#replace <PROJECT>.Health.HealthHandler.HandleAsync with (instance) => Task.FromResult(Microsoft.AspNetCore.Http.TypedResults.Ok(new <PROJECT>.Health.HealthResponse("Healthy (replaced!)", DateTimeOffset.UtcNow)))'
-curl -s http://localhost:<BACKEND_API_PORT>/health        # => {"status":"Healthy (replaced!)", ...}
+NO_COLOR=1 csharprepl connect $PID --eval '#replace <PROJECT>.Health.HealthHandler.HandleAsync with (instance) => Task.FromResult(Microsoft.AspNetCore.Http.TypedResults.Ok(new <PROJECT>.Health.HealthResponse("Healthy (replaced!)", DateTimeOffset.UtcNow, new <PROJECT>.Health.BuildResponse("replaced", null, null))))'
+curl -s http://localhost:<BACKEND_API_PORT>/api/health    # => {"status":"Healthy (replaced!)", ...}
 NO_COLOR=1 csharprepl connect $PID --eval '#revert all'
 
 # wrap: temporary debug logging without a rebuild; search the logs for the marker, revert
 NO_COLOR=1 csharprepl connect $PID --eval '#wrap <PROJECT>.Health.HealthHandler.HandleAsync with (orig, instance) => { Serilog.Log.Information("repl-wrap-marker note={Note}", "hello"); return orig(instance); }'
-curl -s localhost:<BACKEND_API_PORT>/health
+curl -s localhost:<BACKEND_API_PORT>/api/health
 aspire logs app-backend --non-interactive --search 'repl-wrap-marker'      # => [app-backend] [11:32:29.590 INF] repl-wrap-marker note=hello
 NO_COLOR=1 csharprepl connect $PID --eval '#revert all'
 ```
@@ -92,7 +92,7 @@ Substitute your PID; `NO_COLOR=1` keeps output parseable.
 **Discover a type's real shape** when a property guess fails with `CS1061`; list the property names, then fix the query in one step:
 
 ```bash
-NO_COLOR=1 csharprepl connect $PID --eval 'string.Join(", ", typeof(<PROJECT>.Health.HealthResponse).GetProperties().Select(p => p.Name))'   # => "Status, CheckedAtUtc"
+NO_COLOR=1 csharprepl connect $PID --eval 'string.Join(", ", typeof(<PROJECT>.Health.HealthResponse).GetProperties().Select(p => p.Name))'   # => "Status, CheckedAtUtc, Build"
 ```
 
 **Read the configuration the process actually loaded**, not what you think it loaded:
@@ -105,9 +105,9 @@ NO_COLOR=1 csharprepl connect $PID --eval 'Get<Microsoft.Extensions.Configuratio
 
 ```bash
 NO_COLOR=1 csharprepl connect $PID --eval '#replace <PROJECT>.Health.HealthHandler.HandleAsync with (instance) => throw new System.InvalidOperationException("repl-fault-injection")'
-curl -s -w ' [%{http_code}]\n' localhost:<BACKEND_API_PORT>/health     # => problem-details 500 with a traceId
+curl -s -w ' [%{http_code}]\n' localhost:<BACKEND_API_PORT>/api/health     # => problem-details 500 with a traceId
 NO_COLOR=1 csharprepl connect $PID --eval '#revert all'
-curl -s -w ' [%{http_code}]\n' localhost:<BACKEND_API_PORT>/health     # => 200 again
+curl -s -w ' [%{http_code}]\n' localhost:<BACKEND_API_PORT>/api/health     # => 200 again
 ```
 
 **A reusable probe script.**  For a diagnostic you run repeatedly, put it in a `.csx` in a scratch directory (not in the repo): `using` lines at the top, awaits, one result expression last.  If a probe earns permanence, promote it to a development-only diagnostic endpoint.

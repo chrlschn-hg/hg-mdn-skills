@@ -14,6 +14,8 @@ Most tests are **fast, in-process, and call code directly**: no host-level tests
 | **Contract lint** | `<PROJECT>.Api.Tests` | the committed OpenAPI document: every operation named, summarized, described | the JSON file the build writes |
 | **Route-security tests** | `<PROJECT>.Api.Tests` | route groups and guards through an in-memory pipeline: 401, 403, hidden 404, filter order | probe endpoints, header-driven test scheme |
 | **Route-security lint** | `<PROJECT>.Runtime.Tests` | every real route is secured or listed as anonymous | the real endpoint set, never requested |
+| **Front-end hosting tests** | `<PROJECT>.Api.Tests` | the runtime serving the built front-end: files, fallback, cache headers, the line to the API (`spa-hosting.md`) | a temporary web root, the in-memory pipeline |
+| **Build-info tests** | `<PROJECT>.Health.Tests` | parsing the version stamp the build leaves in the assembly (`build-info.md`) | strings, no host |
 | **App smoke tests** | `src/app` (Vitest) | the whole front-end mounted with the API mocked | see `hg-mdn-frontend` |
 
 Rules of thumb:

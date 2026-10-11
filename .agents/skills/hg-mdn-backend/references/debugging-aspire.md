@@ -19,7 +19,7 @@ Read logs, spans, and traces of the running app from the terminal: no dashboard 
 
 All of `logs`, `otel spans`, and `otel traces` take `--search <text>` (server-side full-text and field filter; syntax: <https://aka.ms/aspire/cli-search>) and `--format Json|Table`.
 
-**Starting and stopping.**  `mise run up` and `mise run down` (`aspire stop`) start and stop a stack you started.  `aspire ps` shows every AppHost on the machine; with more than one running, pass `--apphost host/host.csproj` to `stop`, `logs`, `describe`, and the others, so you never act on another project's stack.  Do not stop a stack you did not start: a foreground host belongs to the person you are working with, so ask first.  Prefer `aspire resource <name> rebuild` or `restart` to restarting the host.  Smoke-test reachability with the backend's `/health` endpoint.
+**Starting and stopping.**  `mise run up` and `mise run down` (`aspire stop`) start and stop a stack you started.  `aspire ps` shows every AppHost on the machine; with more than one running, pass `--apphost host/host.csproj` to `stop`, `logs`, `describe`, and the others, so you never act on another project's stack.  Do not stop a stack you did not start: a foreground host belongs to the person you are working with, so ask first.  Prefer `aspire resource <name> rebuild` or `restart` to restarting the host.  Smoke-test reachability with the backend's `/api/health` endpoint.
 
 ## `--dashboard-url`
 

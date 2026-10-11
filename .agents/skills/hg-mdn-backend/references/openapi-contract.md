@@ -96,9 +96,9 @@ The scaffold sets these (`hg-mdn-scaffold`, `references/backend-templates.md`): 
 
 Document generation **executes `Program.cs`** under an entry assembly named `GetDocument.Insider`, up to `app.Run()`.  Anything that touches a database, a queue, the network, or required secrets goes behind the template's `isOpenApiGeneration` guard.  Handlers are fine: they resolve at request time.
 
-## Hosting and CORS
+## Hosting
 
-Cross-origin vs same-origin hosting, CORS, and the Vite proxy: `hg-mdn-frontend`, `references/config-deploy.md`.
+The API is mapped under `/api` and shares an origin with the front-end (the runtime serves it in production, the Vite dev server proxies `/api`), so there is no CORS and the generated client has no base URL: `references/spa-hosting.md`.  Hosting the front-end apart from the API (CORS, a base URL): `hg-mdn-frontend`, `references/config-deploy.md`.
 
 ## Compatibility
 

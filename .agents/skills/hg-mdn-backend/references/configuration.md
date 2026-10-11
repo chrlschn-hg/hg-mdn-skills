@@ -133,4 +133,4 @@ The database resource name in `AppHost.cs` is the connection string name: `AddDa
 
 ## Ports
 
-The backend port lives in `Properties/launchSettings.json` (`applicationUrl`), and the Kubb `baseURL` must match.  Pick a free port per project (`lsof -nP -iTCP:<port> -sTCP:LISTEN`); the dashboard uses the template's fixed `15100` and the other resource ports are assigned by Aspire (`debugging-aspire.md`).
+The backend port lives in `Properties/launchSettings.json` (`applicationUrl`); `vite.config.ts` repeats it as the `/api` dev proxy fallback for Vite without Aspire (keep them equal; under Aspire the URL is injected).  Pick a free port per project (`lsof -nP -iTCP:<port> -sTCP:LISTEN`); the dashboard uses the template's fixed `15100` and the other resource ports are assigned by Aspire (`debugging-aspire.md`).
