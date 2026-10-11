@@ -310,6 +310,10 @@ A sketch; no example in the references backs it.
 4. Search and sort become query parameters, debounced (`useDebounceFn`), and each change resets to the first page.
 5. Keep the stale-response guard: a slow page-3 response must not replace a newer page-1 result.
 
+## Reordering (drag and drop)
+
+When users reorder rows, the backend ranks them (`hg-mdn-backend`, `references/ids-and-ordering.md`).  Send the dragged row's **new neighbors** (`beforeId`, `afterId`: the neighbors' public ids, `null` at a list end) to the move endpoint, never an index or a rank; show the new order optimistically (`data-loading.md`, writes) and keep what the server returns: the moved row with its new rank, or the new order.  Two people moving rows into the same gap at once is fine: the order stays stable and a later move separates them.
+
 ## Rules
 
 1. Every list renders the four states (`ui-states.md`).

@@ -91,9 +91,21 @@ Run in `src/app` (or `npm --prefix src/app run <script>`, or the `mise run` task
 | `npm run fmt` / `fmt:check` | `oxfmt`. |
 | `npm run preview` | Serve the production build locally. |
 
-From the repo root: `mise run up` / `down`, `mise run test`, `mise run lint`, `mise run generate`.  `oxlint` prints nothing and exits 0 when clean; `oxfmt` formats `.ts`, `.vue`, `.css`, `.json`, and `.md`.  Both read `.oxlintrc.json` / `.oxfmtrc.json` and skip `generated/`.
+From the repo root: `mise run up` / `down`, `mise run test`, `mise run lint`, `mise run generate`.  `oxlint` prints nothing and exits 0 when clean; `oxfmt` formats `.ts`, `.vue`, `.css`, and `.json`, **not Markdown** (it pads tables and rewrites list markers, so `.oxfmtrc.json` ignores `**/*.md`).  Both read `.oxlintrc.json` / `.oxfmtrc.json` and skip `generated/`.
 
-## TypeScript version
+## Toolchain: TypeScript 6, oxlint, oxfmt
+
+Chosen for speed and one consistent format, and set up at scaffolding (the `hg-mdn-scaffold` skill, step 7):
+
+| Tool | Role | Why |
+|---|---|---|
+| TypeScript 6.x (`~6.0`), `vue-tsc` | type check (`npm run build`) | the newest version `vue-tsc` supports (below) |
+| `oxlint` | lint (`npm run lint`, `lint:fix`) | Rust-based (Oxc): fast enough for every save and every check; replaces ESLint |
+| `oxfmt` | format (`npm run fmt`, `fmt:check`) | Rust-based (Oxc), Prettier-compatible output; replaces Prettier |
+
+- **One linter, one formatter.**  Do not add ESLint or Prettier (or their plugins and configs): two tools disagree, and the slow one ends up skipped.  Rules go in `.oxlintrc.json`, format options in `.oxfmtrc.json`.
+- **Format on save** in VS Code with the `oxc.oxc-vscode` extension (the template's `.vscode/settings.json`); `npm run fmt` before handing work back; CI runs `fmt:check`.
+- A lint or format check of the template takes about a tenth of a second, so run them freely (`mise run check` includes both).
 
 Stay on TypeScript 6.x.  `vue-tsc` needs the TypeScript JavaScript API (`typescript/lib/tsc`), which TypeScript 7's native package does not expose; `vue-tsc -b` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED` on 7.  Revisit when `vue-tsc` supports 7.
 
