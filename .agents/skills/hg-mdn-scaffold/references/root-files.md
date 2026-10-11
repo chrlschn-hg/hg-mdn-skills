@@ -22,7 +22,7 @@ mkdir -p .github && ln -s ../AGENTS.md .github/copilot-instructions.md && ln -s 
 
 ### `.config/mise.toml`
 
-Lives in `.config/`, not the root.  Tasks run from the repo root.  `check` is the definition of done (step 14, AGENTS.md, the planning skill).  `npm` ships with `node`; add `pnpm` or `yarn` entries only when chosen.  Add cloud CLIs (`aws-cli`, `azure-cli`, `gcloud`) and point their config at `.config` with an `[env]` block, for example `CLOUDSDK_CONFIG = "{{config_root}}/.config/.gcloud-config"`.  Mise tool names: check `mise registry`.
+Lives in `.config/`, not the root.  Tasks run from the repo root.  `check` is the definition of done (step 14, AGENTS.md, the planning skill); `image` builds the container (`references/containers-ci.md`).  `npm` ships with `node`; add `pnpm` or `yarn` entries only when chosen.  Add cloud CLIs (`aws-cli`, `azure-cli`, `gcloud`) and point their config at `.config` with an `[env]` block, for example `CLOUDSDK_CONFIG = "{{config_root}}/.config/.gcloud-config"`.  Mise tool names: check `mise registry`.
 
 ```toml
 # Runtime dependencies (SDKs, CLIs, tools) and tasks for the repository.
@@ -67,6 +67,10 @@ run = "npm run generate --prefix src/app"
 [tasks.test]
 description = "Run every test (backend via Microsoft Testing Platform, then front-end; `npm test` regenerates the client first)"
 run = ["dotnet test --solution <project>.slnx", "npm test --prefix src/app"]
+
+[tasks.image]
+description = "Build the container image (API + built front-end), stamped with the current commit (none before the first commit)"
+run = "docker build -f build/Dockerfile --build-arg GIT_SHA=$(git rev-parse --verify -q HEAD || true) -t <project> ."
 
 [tasks.format]
 description = "Format backend (CSharpier) and front-end (oxfmt)"
@@ -155,9 +159,11 @@ Restricts packages to nuget.org with source mapping (supply-chain hygiene).
 # Kubb output; regenerated from the committed OpenAPI document (`npm run generate`)
 generated/
 
-# Front-end build output
+# Front-end build output (the Docker build copies `dist/` into the runtime's `wwwroot`; a local
+# copy there, to try the hosted front-end without Docker, is not committed either)
 node_modules/
 dist/
+src/backend/runtime/wwwroot/
 
 # Test results (Microsoft Testing Platform)
 .artifacts/
@@ -191,6 +197,7 @@ src/backend/packages/<PROJECT>.Data/Migrations
 .config/
 host/
 src/app/dist/
+src/backend/runtime/wwwroot/
 ```
 
 ## AGENTS.md and README.md
@@ -209,7 +216,9 @@ Fill the title line and the context sentences from the user's answers; the rest 
     - `runtime/`: the web API host; keep it lean, business logic lives in feature packages
 - `src/app`: Vue 3, Nuxt UI, Vite, TypeScript, Tailwind CSS; package manager is `npm`
     - `src/app/src/api`: OpenAPI document (written by the backend build) and Kubb output in `generated/`; never edit by hand
-- Route security is by group: `Map<PROJECT>Endpoints` maps slices onto a root group that requires a signed-in user (`Health` is the only anonymous route); admin-only slices implement `IAdminEndpoint`; guards are `IEndpointFilter` extensions.  Opening a route means `AllowAnonymous()` and updating the list in `<PROJECT>.Runtime.Tests` (`RouteSecurityLintTests`).  Development signs in a configured user; other environments answer 401 until a real authentication scheme replaces the placeholder (`Add<PROJECT>Authentication`)
+    - One origin: the API is under `/api`; in production the runtime serves the built front-end from `wwwroot` (one container, `build/Dockerfile`), in development Vite proxies `/api` to the backend.  No CORS, no base URL in the client
+- Route security is by group: `Map<PROJECT>Endpoints("/api")` maps slices onto a root group that requires a signed-in user (`GET /api/health` and the `/api` 404 catch-all are the only anonymous routes); admin-only slices implement `IAdminEndpoint`; guards are `IEndpointFilter` extensions.  Opening a route means `AllowAnonymous()` and updating the list in `<PROJECT>.Runtime.Tests` (`RouteSecurityLintTests`).  Development signs in a configured user; other environments answer 401 until a real authentication scheme replaces the placeholder (`Add<PROJECT>Authentication`)
+- The build stamps the running version, commit, and build time (`BuildInfo` in `<PROJECT>.Health`): released images get them from the `VERSION` and `GIT_SHA` build args, local builds report `0.0.0-dev`.  They show on `GET /api/health`, in the startup log, as OpenTelemetry `service.version`, and in the UI (`BuildInfoLabel`)
 - `host`: Aspire host; a new runtime component (database, emulator, worker, etc.) must be plugged into `host/AppHost.cs`
 
 ## Skills
@@ -236,6 +245,7 @@ mise tasks        # list tasks
 mise run up       # start the Aspire stack (detached)
 mise run down     # stop it
 mise run build    # build the solution (backend)
+mise run image    # build the container image (API + front-end)
 mise run check    # everything CI checks: builds, type check, lint, format check, tests
 mise run test     # backend + front-end tests
 mise run format   # CSharpier + oxfmt
@@ -305,6 +315,22 @@ mise run check
 ```
 
 Open the Aspire dashboard (URL printed by `aspire run`) for the front-end, API docs (Scalar), and database UI links.
+
+## Container
+
+One image holds the API and the built front-end (`build/Dockerfile`).  The app applies its migrations at startup, so it needs a database; a user-defined network lets the containers find each other on macOS, Windows, and Linux:
+
+```bash
+mise run image
+docker network create <project>-net
+docker run -d --name <project>-pg --network <project>-net -e POSTGRES_PASSWORD=pw postgres:18
+docker run -d --name <project>-app --network <project>-net -p 8080:8080 \
+  -e "ConnectionStrings__<project>=Host=<project>-pg;Database=<project>;Username=postgres;Password=pw" <project>
+build/smoke.sh http://localhost:8080   # the API, the front-end, and the version it reports
+docker rm -f <project>-app <project>-pg && docker network rm <project>-net
+```
+
+The image runs in Production: every secured API route answers 401 until a real authentication scheme replaces the placeholder (`Add<PROJECT>Authentication`).  Release builds pass `--build-arg VERSION=1.2.3 --build-arg GIT_SHA=<sha>`; the running version and commit show on `/api/health` and in the app.
 ````
 
 ## Code style enforcement

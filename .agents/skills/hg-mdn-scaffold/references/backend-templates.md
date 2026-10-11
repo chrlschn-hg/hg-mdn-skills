@@ -16,10 +16,13 @@ src/backend/
   packages/
     <PROJECT>.Config/          AppSettings (strongly typed settings)
     <PROJECT>.Api/             IEndpoint, IEndpointHandler, endpoint discovery + mapping,
-                               Security/ (secure-by-default route groups, admin group, route guards)
-    <PROJECT>.Api.Tests/       lints the OpenAPI document; tests the route groups and guards in memory
+                               Security/ (secure-by-default route groups, admin group, route guards),
+                               SpaSetup (serves the built front-end from `wwwroot`)
+    <PROJECT>.Api.Tests/       lints the OpenAPI document; tests the route groups, guards, and
+                               front-end hosting in memory
     <PROJECT>.Telemetry/       Serilog + OpenTelemetry setup, tracing helpers
-    <PROJECT>.Health/          first feature slice; copy its shape for new slices
+    <PROJECT>.Health/          first feature slice; copy its shape for new slices; BuildInfo (the
+                               running version, commit, and build time)
     <PROJECT>.Health.Tests/
     <PROJECT>.Identity/        second slice: `GET /me` (who is signed in)
     <PROJECT>.Identity.Tests/
@@ -32,7 +35,7 @@ src/backend/
 
 ### `src/backend/Directory.Build.props`
 
-`GenerateDocumentationFile` matters: the OpenAPI generator turns XML doc comments into schema and operation descriptions, so `///` comments on contracts reach the generated client.  `EnforceCodeStyleInBuild` makes `dotnet build` report the `.editorconfig` rules (braces, exhaustive enum switches), and `TreatWarningsAsErrors` makes every warning an error (`hg-mdn-backend`, `references/static-analysis.md`: `AnalysisLevel`, banned APIs, custom analyzers).
+`GenerateDocumentationFile` matters: the OpenAPI generator turns XML doc comments into schema and operation descriptions, so `///` comments on contracts reach the generated client.  `EnforceCodeStyleInBuild` makes `dotnet build` report the `.editorconfig` rules (braces, exhaustive enum switches), and `TreatWarningsAsErrors` makes every warning an error (`hg-mdn-backend`, `references/static-analysis.md`: `AnalysisLevel`, banned APIs, custom analyzers).  `VersionPrefix` and `VersionSuffix` make a build that is not given a version report `0.0.0-dev`; releases override it with `-p:Version=1.2.3` (`hg-mdn-backend`, `references/build-info.md`).
 
 ```xml
 <Project>
@@ -47,6 +50,10 @@ src/backend/
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <!-- Zero tolerance: every compiler, analyzer, and NuGet warning fails the build. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Version of a build that is not given one.  Releases pass `-p:Version=1.2.3` (and the commit
+         as `-p:SourceRevisionId=<sha>`); the runtime reports both (`BuildInfo`). -->
+    <VersionPrefix>0.0.0</VersionPrefix>
+    <VersionSuffix>dev</VersionSuffix>
   </PropertyGroup>
 </Project>
 ```
@@ -322,6 +329,84 @@ public static class HttpSetup
 
             return app;
         }
+    }
+}
+```
+
+### `src/backend/packages/<PROJECT>.Api/SpaSetup.cs`
+
+Serves the front-end that the Docker image copies into `wwwroot` (one container).  Both methods do nothing without `wwwroot/index.html`, so local development is untouched (Vite serves the front-end there).  The `nonfile` constraint is required: without it the fallback endpoint also matches asset paths, and the static-file middleware skips any request that already has an endpoint, so no asset would be served.  Rules and tests: the backend skill, `references/spa-hosting.md`.
+
+```csharp
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.StaticFiles;
+
+namespace <PROJECT>.Api;
+
+/// <summary>
+/// Serves the built front-end from the runtime, so one container holds the whole application.
+/// Both methods do nothing when `wwwroot/index.html` is absent (local development: Vite serves the
+/// front-end and proxies `/api` here), so there is no environment check to keep in sync.
+/// </summary>
+public static class SpaSetup
+{
+    private const string IndexFile = "index.html";
+
+    extension(WebApplication app)
+    {
+        /// <summary>
+        /// Static files from `wwwroot`.  Call before the security middleware (the shell must load
+        /// before anyone signs in) and before request logging (every asset request would be
+        /// logged).
+        /// </summary>
+        public WebApplication Use<PROJECT>Spa()
+        {
+            if (app.HasSpa())
+            {
+                app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = SetCacheControl });
+            }
+
+            return app;
+        }
+
+        /// <summary>
+        /// `/` and client-side routes (`/notes/123`) are not files: answer them with `index.html`
+        /// and let the router take over.  Call after the endpoints; it only matches what nothing
+        /// else did.
+        /// </summary>
+        public WebApplication Map<PROJECT>SpaFallback()
+        {
+            if (app.HasSpa())
+            {
+                // `nonfile`: a path with an extension (a missing `.js` chunk, an image) is a real
+                // 404, not index.html with a 200 that the browser then fails to parse as a script.
+                // It also lets the static-file middleware serve files: it skips any request that
+                // already matched an endpoint, so a catch-all without `nonfile` would shadow them.
+                app.MapFallbackToFile(
+                    "{**path:nonfile}",
+                    IndexFile,
+                    new StaticFileOptions { OnPrepareResponse = SetCacheControl }
+                );
+            }
+
+            return app;
+        }
+
+        private bool HasSpa() => app.Environment.WebRootFileProvider.GetFileInfo(IndexFile).Exists;
+    }
+
+    private static void SetCacheControl(StaticFileResponseContext context)
+    {
+        // Vite fingerprints everything under `assets/`, so those files can be cached for good.
+        // Everything else (index.html, the favicon) is revalidated: without that, a new release
+        // would not show up until the old copy expired.  (The fallback serves index.html with the
+        // request path rewritten to `/index.html`, so a client route such as `/assets/overview`
+        // gets the revalidate rule too.)
+        context.Context.Response.Headers.CacheControl =
+            context.Context.Request.Path.StartsWithSegments("/assets")
+                ? "public, max-age=31536000, immutable"
+                : "no-cache";
     }
 }
 ```
@@ -718,7 +803,7 @@ public static class SecuritySetup
     {
         /// <summary>
         /// Adds authentication then authorization to the pipeline.  Call after the exception
-        /// handler and CORS, before mapping endpoints.
+        /// handler and the front-end's static files (`Use<PROJECT>Spa`), before mapping endpoints.
         /// </summary>
         public WebApplication Use<PROJECT>Security()
         {
@@ -1235,9 +1320,158 @@ public sealed class PlaceholderAuthenticationTests
 }
 ```
 
+### `src/backend/packages/<PROJECT>.Api.Tests/SpaHostingTests.cs`
+
+The front-end served by the runtime: the shell and its assets, client-side routes, and the line between the SPA and the API.  A temporary web root stands in for the image's `wwwroot`.
+
+```csharp
+using System.Net;
+using System.Net.Http.Json;
+using <PROJECT>.Api;
+
+namespace <PROJECT>.Api.Tests;
+
+/// <summary>
+/// The front-end served by the runtime: the shell and its assets, client-side routes, and the line
+/// between the SPA and the API.  A temporary web root stands in for the Docker image's `wwwroot`.
+/// Run: dotnet run --project src/backend/packages/<PROJECT>.Api.Tests --treenode-filter "/*/*/SpaHostingTests/*"
+/// </summary>
+public sealed class SpaHostingTests
+{
+    private const string IndexHtml = "<!doctype html><div id=\"app\"></div>";
+
+    /// <summary>A web root laid out like `vite build` output: index.html, `assets/` with hashed files.</summary>
+    private static string CreateWebRoot()
+    {
+        var root = Directory.CreateTempSubdirectory("<project>-spa-").FullName;
+
+        Directory.CreateDirectory(Path.Combine(root, "assets"));
+        File.WriteAllText(Path.Combine(root, "index.html"), IndexHtml);
+        File.WriteAllText(Path.Combine(root, "favicon.svg"), "<svg />");
+        File.WriteAllText(Path.Combine(root, "assets", "index-4f2a9c.js"), "console.log(1);");
+
+        return root;
+    }
+
+    [Test]
+    public async Task Root_ServesIndexHtml_AndRevalidates()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var response = await host.Client.GetAsync("/");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
+        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+    }
+
+    [Test]
+    public async Task ClientSideRoute_ServesIndexHtml()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var response = await host.Client.GetAsync("/notes/123");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
+        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+    }
+
+    [Test]
+    public async Task HashedAsset_IsCachedForever()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var response = await host.Client.GetAsync("/assets/index-4f2a9c.js");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert
+            .That(response.Headers.CacheControl?.ToString())
+            .IsEqualTo("public, max-age=31536000, immutable");
+    }
+
+    [Test]
+    public async Task ClientRouteUnderAssets_IsIndexHtml_AndRevalidated()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        // A page route that happens to start with `/assets` must not inherit the asset cache rule.
+        var response = await host.Client.GetAsync("/assets/overview");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
+        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+    }
+
+    [Test]
+    public async Task OtherFiles_AreRevalidated()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var response = await host.Client.GetAsync("/favicon.svg");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+    }
+
+    [Test]
+    public async Task MissingAsset_Is404_NotIndexHtml()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        // A stale chunk name after a deploy: index.html here would be parsed as JavaScript.
+        var response = await host.Client.GetAsync("/assets/index-000000.js");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That(await response.Content.ReadAsStringAsync()).IsNotEqualTo(IndexHtml);
+    }
+
+    [Test]
+    public async Task UnknownApiRoute_Is404Json_NotIndexHtml()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var response = await host.Client.GetAsync("/api/typo");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+
+        var error = await response.Content.ReadFromJsonAsync<ApiError>();
+
+        await Assert.That(error?.Code).IsEqualTo("not_found");
+    }
+
+    [Test]
+    public async Task ApiRoutes_KeepTheirSecurity()
+    {
+        await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
+
+        var secured = await host.Client.GetAsync("/api/secret");
+        var open = await host.Client.GetAsync("/api/open");
+
+        await Assert.That(secured.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
+        await Assert.That(open.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task WithoutABuiltFrontEnd_NothingIsServed()
+    {
+        var emptyWebRoot = Directory.CreateTempSubdirectory("<project>-spa-").FullName;
+        await using var host = await ProbeHost.StartWithSpaAsync(emptyWebRoot);
+
+        var root = await host.Client.GetAsync("/");
+        var route = await host.Client.GetAsync("/notes/123");
+        var api = await host.Client.GetAsync("/api/open");
+
+        await Assert.That(root.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That(route.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That(api.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+}
+```
+
 ### `src/backend/packages/<PROJECT>.Api.Tests/ProbeHost.cs`
 
-An in-memory host with a header-driven test scheme (`X-User`, `X-Roles`, `X-Tenant`).
+An in-memory host with a header-driven test scheme (`X-User`, `X-Roles`, `X-Tenant`).  `StartWithSpaAsync(webRoot)` also serves a built front-end from that directory, wired like `Program.cs`.
 
 ```csharp
 using System.Security.Claims;
@@ -1294,14 +1528,28 @@ internal sealed class ProbeHost : IAsyncDisposable
     /// scheme (Development signs in `Security:DevelopmentUser`; anything else denies).
     /// </param>
     /// <param name="developmentRoles">Roles for the Development user (placeholder only).</param>
-    public static async Task<ProbeHost> StartAsync(
+    public static Task<ProbeHost> StartAsync(
         string environment = "Development",
         bool placeholder = false,
         params string[] developmentRoles
+    ) => StartAsync(environment, placeholder, developmentRoles, webRoot: null);
+
+    /// <summary>
+    /// Like <see cref="StartAsync(string, bool, string[])"/>, with a built front-end in `webRoot`
+    /// (a directory holding `index.html`): the pipeline then serves it like the production host.
+    /// </summary>
+    public static Task<ProbeHost> StartWithSpaAsync(string webRoot) =>
+        StartAsync("Development", placeholder: false, developmentRoles: [], webRoot);
+
+    private static async Task<ProbeHost> StartAsync(
+        string environment,
+        bool placeholder,
+        string[] developmentRoles,
+        string? webRoot
     )
     {
         var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions { EnvironmentName = environment }
+            new WebApplicationOptions { EnvironmentName = environment, WebRootPath = webRoot }
         );
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
@@ -1332,8 +1580,10 @@ internal sealed class ProbeHost : IAsyncDisposable
         builder.Services.Add<PROJECT>Endpoints(); // finds the probe endpoints
 
         var app = builder.Build();
+        app.Use<PROJECT>Spa(); // a no-op without `index.html` in the web root
         app.Use<PROJECT>Security();
         app.Map<PROJECT>Endpoints("/api");
+        app.Map<PROJECT>SpaFallback();
 
         await app.StartAsync();
 
@@ -1702,7 +1952,13 @@ public static class TelemetrySetup
         /// </summary>
         public IServiceCollection Add<PROJECT>Telemetry(TelemetryConfig config)
         {
+            // Resource attributes: on every log record (OTLP sink) and every span and metric.
             Dictionary<string, object> attributes = new() { ["service"] = config.ServiceName };
+
+            if (config.ServiceVersion is not null)
+            {
+                attributes["service.version"] = config.ServiceVersion;
+            }
 
             // Logging
             Log.Logger = new LoggerConfiguration()
@@ -1747,6 +2003,8 @@ public static class TelemetrySetup
 
 ### `src/backend/packages/<PROJECT>.Telemetry/TelemetryConfig.cs`
 
+`ServiceVersion` is the running build's version (`BuildInfo.Version`): it becomes `service.version` on every log record, span, and metric.
+
 ```csharp
 namespace <PROJECT>.Telemetry;
 
@@ -1757,6 +2015,9 @@ public record TelemetryConfig
 {
     /// <summary>Reported as `service.name` on every span, metric, and log.</summary>
     public required string ServiceName { get; init; }
+
+    /// <summary>Reported as `service.version`; the running build's version.</summary>
+    public string? ServiceVersion { get; init; }
 
     /// <summary>Must match the `ActivitySource` name used by <see cref="<PROJECT>Telemetry"/>.</summary>
     public required string ActivitySourceName { get; init; }
@@ -1920,7 +2181,7 @@ public static class TelemetryExtensions
 
 ### `src/backend/packages/<PROJECT>.Health/HealthEndpoints.cs`
 
-The one anonymous route: `AllowAnonymous()` with its reason in a `// NOTE:`, and listed in `RouteSecurityLintTests`.  Every endpoint needs `WithName` (the `operationId` and the client function name), `WithSummary`, and `WithDescription`; the rule and wording are in the backend skill, `references/openapi-contract.md`.
+The one anonymous route: `AllowAnonymous()` with its reason in a `// NOTE:`, and listed in `RouteSecurityLintTests`.  It reports the running build (version, commit) to anyone, which is what a probe or a person asking "what is deployed?" needs; if that must not be public, move `Build` to a secured route.  Every endpoint needs `WithName` (the `operationId` and the client function name), `WithSummary`, and `WithDescription`; the rule and wording are in the backend skill, `references/openapi-contract.md`.
 
 ```csharp
 using <PROJECT>.Api;
@@ -1940,7 +2201,8 @@ public sealed class HealthEndpoints : IEndpoint
         endpoints
             .MapGet("/health", (HealthHandler handler) => handler.HandleAsync())
             // NOTE: anonymous on purpose.  Platform probes and smoke tests call it before any
-            // sign-in, and it reveals nothing.  Every other route inherits the root group's
+            // sign-in.  It reveals the status and which build is running (version, commit),
+            // nothing about data or configuration.  Every other route inherits the root group's
             // `RequireAuthorization()`; opening one is a deliberate act like this one.
             .AllowAnonymous()
             .WithName("GetHealth")
@@ -1948,9 +2210,10 @@ public sealed class HealthEndpoints : IEndpoint
             .WithSummary("Check service health.")
             .WithDescription(
                 """
-                Reports whether the service is up and answering requests, and when the check ran.
-                It does not probe dependencies such as the database, so it is suitable for liveness
-                checks and smoke tests but not as a readiness signal.
+                Reports whether the service is up and answering requests, when the check ran, and which
+                build is running (version, commit, and build time).  It does not probe dependencies
+                such as the database, so it is suitable for liveness checks and smoke tests but not
+                as a readiness signal.
                 """
             );
     }
@@ -1959,7 +2222,7 @@ public sealed class HealthEndpoints : IEndpoint
 
 ### `src/backend/packages/<PROJECT>.Health/HealthHandler.cs`
 
-Shape to copy for new slices: one `<Slice>Endpoints : IEndpoint`, one `IEndpointHandler` per operation, contract records with XML docs, a static per-class logger, and `Trace` for spans.
+Shape to copy for new slices: one `<Slice>Endpoints : IEndpoint`, one `IEndpointHandler` per operation, contract records with XML docs, a static per-class logger, and `Trace` for spans.  `BuildResponse` is the contract; the handler maps the registered `BuildInfo` onto it, so the API shape does not depend on the stamp's internals.
 
 ```csharp
 using <PROJECT>.Api;
@@ -1974,9 +2237,22 @@ namespace <PROJECT>.Health;
 /// </summary>
 /// <param name="Status">The health status of the service.</param>
 /// <param name="CheckedAtUtc">When the check was performed.</param>
-public sealed record HealthResponse(string Status, DateTimeOffset CheckedAtUtc);
+/// <param name="Build">The build that is running.</param>
+public sealed record HealthResponse(
+    string Status,
+    DateTimeOffset CheckedAtUtc,
+    BuildResponse Build
+);
 
-public sealed class HealthHandler : IEndpointHandler
+/// <summary>
+/// The build that is running.
+/// </summary>
+/// <param name="Version">The SemVer version; `0.0.0-dev` for a local or unversioned build.</param>
+/// <param name="Commit">The full commit SHA, when the build knew it.</param>
+/// <param name="BuiltAtUtc">When a Release build ran; absent for local builds.</param>
+public sealed record BuildResponse(string Version, string? Commit, DateTimeOffset? BuiltAtUtc);
+
+public sealed class HealthHandler(BuildInfo build) : IEndpointHandler
 {
     // One logger per class: scoped to the type, no DI needed.  Field name shadows `Serilog.Log`.
     private static readonly Serilog.ILogger Log = Serilog.Log.ForContext<HealthHandler>();
@@ -1993,7 +2269,75 @@ public sealed class HealthHandler : IEndpointHandler
         Log.Here().Information("Health check requested!");
 
         return Task.FromResult(
-            TypedResults.Ok(new HealthResponse("Healthy", DateTimeOffset.UtcNow))
+            TypedResults.Ok(
+                new HealthResponse(
+                    "Healthy",
+                    DateTimeOffset.UtcNow,
+                    new BuildResponse(build.Version, build.Commit, build.BuiltAtUtc)
+                )
+            )
+        );
+    }
+}
+```
+
+### `src/backend/packages/<PROJECT>.Health/BuildInfo.cs`
+
+What is running, read back from the stamp the build left in the assembly: `Version` and `SourceRevisionId` become the informational version (`1.4.0+<commit>`), `BuildTimeUtc` is assembly metadata.  The runtime registers one instance (`Program.cs`); it lives in this slice so it has a test project.
+
+```csharp
+using System.Globalization;
+using System.Reflection;
+
+namespace <PROJECT>.Health;
+
+/// <summary>
+/// What is running: the version, the commit, and when it was built.  The build stamps them
+/// (`Version` and `SourceRevisionId`, and `BuildTimeUtc` in Release builds of the runtime
+/// project); <see cref="From"/> reads them back.  Registered once, by the runtime project.
+/// </summary>
+/// <param name="Version">SemVer; `0.0.0-dev` for a build that was not given a version.</param>
+/// <param name="Commit">The full commit SHA; null when the build had none (no git, no build arg).</param>
+/// <param name="BuiltAtUtc">When the build ran; null for Debug builds, which are not stamped.</param>
+public sealed record BuildInfo(string Version, string? Commit, DateTimeOffset? BuiltAtUtc)
+{
+    private const int ShortCommitLength = 7;
+
+    /// <summary>The first characters of the commit, for logs and labels.</summary>
+    public string ShortCommit =>
+        Commit is null ? "unknown" : Commit[..Math.Min(Commit.Length, ShortCommitLength)];
+
+    /// <summary>Reads the stamp from the assembly the build produced.</summary>
+    public static BuildInfo From(Assembly assembly) =>
+        Parse(
+            assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion,
+            assembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(attribute => attribute.Key == "BuildTimeUtc")
+                ?.Value
+        );
+
+    /// <summary>
+    /// Splits an informational version (`1.4.0-rc.2+3f2a1bc...`: the SDK appends the commit after
+    /// `+`) and parses the build time.
+    /// </summary>
+    internal static BuildInfo Parse(string? informationalVersion, string? builtAtUtc)
+    {
+        var parts = (informationalVersion ?? "").Split('+', 2);
+
+        return new BuildInfo(
+            parts[0].Length > 0 ? parts[0] : "unknown",
+            parts.Length > 1 && parts[1].Length > 0 ? parts[1] : null,
+            DateTimeOffset.TryParse(
+                builtAtUtc,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var builtAt
+            )
+                ? builtAt
+                : null
         );
     }
 }
@@ -2025,12 +2369,85 @@ public sealed class HealthHandlerTests
     [Test]
     public async Task Health_WhenCalled_ReturnsHealthy()
     {
-        var handler = new HealthHandler();
+        var handler = new HealthHandler(new BuildInfo("0.0.0-dev", null, null));
 
         var result = await handler.HandleAsync();
 
         await Assert.That(result.Value).IsNotNull();
         await Assert.That(result.Value!.Status).IsEqualTo("Healthy");
+    }
+
+    [Test]
+    public async Task Health_ReportsTheRunningBuild()
+    {
+        var builtAt = new DateTimeOffset(2026, 10, 11, 14, 2, 3, TimeSpan.Zero);
+        var handler = new HealthHandler(new BuildInfo("1.4.0", "3f2a1bc9d0e8", builtAt));
+
+        var result = await handler.HandleAsync();
+
+        await Assert
+            .That(result.Value!.Build)
+            .IsEqualTo(new BuildResponse("1.4.0", "3f2a1bc9d0e8", builtAt));
+    }
+}
+```
+
+### `src/backend/packages/<PROJECT>.Health.Tests/BuildInfoTests.cs`
+
+```csharp
+namespace <PROJECT>.Health.Tests;
+
+public sealed class BuildInfoTests
+{
+    [Test]
+    public async Task Parse_SplitsTheVersionFromTheCommit()
+    {
+        var info = BuildInfo.Parse(
+            "1.4.0-rc.2+3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff",
+            "2026-10-11T14:02:03.0000000Z"
+        );
+
+        await Assert.That(info.Version).IsEqualTo("1.4.0-rc.2");
+        await Assert.That(info.Commit).IsEqualTo("3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff");
+        await Assert.That(info.ShortCommit).IsEqualTo("3f2a1bc");
+        await Assert
+            .That(info.BuiltAtUtc)
+            .IsEqualTo(new DateTimeOffset(2026, 10, 11, 14, 2, 3, TimeSpan.Zero));
+    }
+
+    [Test]
+    public async Task Parse_WithoutACommit_ReportsNoCommit()
+    {
+        var info = BuildInfo.Parse("0.0.0-dev", null);
+
+        await Assert.That(info.Version).IsEqualTo("0.0.0-dev");
+        await Assert.That(info.Commit).IsNull();
+        await Assert.That(info.ShortCommit).IsEqualTo("unknown");
+        await Assert.That(info.BuiltAtUtc).IsNull();
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("")]
+    [Arguments("+abc")]
+    public async Task Parse_WithoutAVersion_ReportsUnknown(string? informationalVersion)
+    {
+        await Assert.That(BuildInfo.Parse(informationalVersion, null).Version).IsEqualTo("unknown");
+    }
+
+    [Test]
+    public async Task Parse_IgnoresATimestampItCannotRead()
+    {
+        await Assert.That(BuildInfo.Parse("1.0.0", "yesterday-ish").BuiltAtUtc).IsNull();
+    }
+
+    [Test]
+    public async Task From_ReadsTheStampOfTheAssemblyTheBuildProduced()
+    {
+        // This test assembly was built by the same SDK, so it carries an informational version.
+        var info = BuildInfo.From(typeof(BuildInfoTests).Assembly);
+
+        await Assert.That(info.Version).IsNotEqualTo("unknown");
     }
 }
 ```
@@ -2216,7 +2633,7 @@ References the runtime, so endpoint discovery sees every slice.
 
 ### `src/backend/packages/<PROJECT>.Runtime.Tests/RouteSecurityLintTests.cs`
 
-Every real route has authorization or an explicit `AllowAnonymous()`, and the anonymous set equals the reviewed list.  Keep the `Map<PROJECT>Endpoints` prefix the same as `Program.cs`: with the same-origin recipe (`Map<PROJECT>Endpoints("/api")`) change it here too, and the list then needs `GET /api/health` and the catch-all route `HttpSetup` adds under the prefix (print `Routes()` for the exact strings).
+Every real route has authorization or an explicit `AllowAnonymous()`, and the anonymous set equals the reviewed list.  Keep the `Map<PROJECT>Endpoints` prefix the same as `Program.cs` (`/api`).  The list holds `GET /api/health` and the catch-all route `HttpSetup` adds under the prefix (print `Routes()` for the exact strings).  The SPA fallback is mapped outside the root group, in `Program.cs`, and is not part of this lint.
 
 ```csharp
 using <PROJECT>.Api;
@@ -2238,7 +2655,11 @@ public sealed class RouteSecurityLintTests
 {
     // Routes that are public on purpose, as "METHOD pattern".  Adding one is a security decision:
     // the test fails until it is listed here, so the change shows up in review.
-    private static readonly string[] AnonymousRoutes = ["GET /health"];
+    private static readonly string[] AnonymousRoutes =
+    [
+        "GET /api/health",
+        "ANY /api/{**unmatched}", // a typo under /api is a 404 for everyone, not a 401
+    ];
 
     private static List<(string Route, bool Secured, bool Anonymous)> Routes()
     {
@@ -2248,7 +2669,7 @@ public sealed class RouteSecurityLintTests
         builder.Services.Add<PROJECT>Endpoints();
 
         var app = builder.Build();
-        app.Map<PROJECT>Endpoints(); // same prefix as `Program.cs`
+        app.Map<PROJECT>Endpoints("/api"); // same prefix as `Program.cs`
 
         // The route builder's data sources hold every mapped endpoint, with group metadata applied.
         return
@@ -2277,8 +2698,8 @@ public sealed class RouteSecurityLintTests
     public async Task TheLintSeesTheRealRoutes()
     {
         // Guards the lint itself: an empty route list would make the checks below pass vacuously.
-        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /health");
-        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /me");
+        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /api/health");
+        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /api/me");
     }
 
     [Test]
@@ -2303,7 +2724,7 @@ public sealed class RouteSecurityLintTests
 
 ### `src/backend/runtime/<PROJECT>.Runtime.csproj`
 
-`OpenApiDocumentsDirectory` is relative to this csproj's directory (`src/backend/runtime`), so `..\..\app\src\api` resolves to `src/app/src/api`.  Release builds skip document generation, so container builds do not need `src/app`.  Add one `ProjectReference` per feature slice.
+`OpenApiDocumentsDirectory` is relative to this csproj's directory (`src/backend/runtime`), so `..\..\app\src\api` resolves to `src/app/src/api`.  Release builds skip document generation, so container builds do not need `src/app`, and stamp `BuildTimeUtc` (read by `BuildInfo`; Debug builds are not stamped, so they stay incremental).  Add one `ProjectReference` per feature slice.
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk.Web">
@@ -2318,6 +2739,11 @@ public sealed class RouteSecurityLintTests
     <!-- Suppress OpenAPI document generation in Release; the target checks this property -->
     <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
   </PropertyGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Read back by `BuildInfo`.  Release only: a timestamp changes the assembly on every build,
+         which would make every Debug build recompile the runtime project. -->
+    <AssemblyMetadata Include="BuildTimeUtc" Value="$([System.DateTime]::UtcNow.ToString('o'))" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
@@ -2342,13 +2768,14 @@ public sealed class RouteSecurityLintTests
 
 ### `src/backend/runtime/Program.cs`
 
-**`isOpenApiGeneration`:** build-time OpenAPI generation (`Microsoft.Extensions.ApiDescription.Server`) runs this entry point under the `GetDocument.Insider` assembly and executes everything up to `app.Run()`.  Anything that needs infrastructure (database connection, migrations, network calls) must be skipped in that mode or `dotnet build` fails.  Remove the data lines if no database was chosen.  Security: `Add<PROJECT>Authorization().Add<PROJECT>Authentication(...)` and `Use<PROJECT>Security()` (before the endpoints); replace the placeholder authentication with the real scheme.  CORS is open to any origin: restrict it before using cookie authentication.
+**`isOpenApiGeneration`:** build-time OpenAPI generation (`Microsoft.Extensions.ApiDescription.Server`) runs this entry point under the `GetDocument.Insider` assembly and executes everything up to `app.Run()`.  Anything that needs infrastructure (database connection, migrations, network calls) must be skipped in that mode or `dotnet build` fails.  Remove the data lines if no database was chosen.  Security: `Add<PROJECT>Authorization().Add<PROJECT>Authentication(...)` and `Use<PROJECT>Security()` (before the endpoints); replace the placeholder authentication with the real scheme.  The front-end is same-origin (the runtime serves it in production, the Vite dev server proxies `/api` in development), so there is no CORS.  Pipeline: `Use<PROJECT>Spa()` (static files, public) before request logging and security; the API under `/api`; `Map<PROJECT>SpaFallback()` last.  `BuildInfo` is registered once, passed to telemetry as `service.version`, and logged at startup.
 
 ```csharp
 using System.Reflection;
 using <PROJECT>.Api;
 using <PROJECT>.Config;
 using <PROJECT>.Data;
+using <PROJECT>.Health;
 using <PROJECT>.Telemetry;
 using Scalar.AspNetCore;
 using Serilog;
@@ -2369,21 +2796,20 @@ builder
 // Unhandled exceptions -> problem details (see `HttpExceptionHandler`)
 builder.Services.AddExceptionHandler<HttpExceptionHandler>().AddProblemDetails();
 
-// OpenAPI and CORS.  The Vite dev server calls the API cross-origin, so CORS is open to any
-// origin here; restrict the origins before you use cookie authentication.
-builder
-    .Services.AddOpenApi()
-    .AddCors(options =>
-        options.AddDefaultPolicy(policy =>
-            policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin()
-        )
-    );
+// OpenAPI.  No CORS: the front-end is same-origin (served by this host in production, proxied by
+// Vite in development), so browsers never call across origins.
+builder.Services.AddOpenApi();
+
+// What is running (version, commit, build time), stamped by the build.  Health reports it.
+var buildInfo = BuildInfo.From(typeof(Program).Assembly);
+builder.Services.AddSingleton(buildInfo);
 
 // Logging and telemetry
 builder.Services.Add<PROJECT>Telemetry(
     new()
     {
         ServiceName = <PROJECT>Telemetry.ActivitySourceName,
+        ServiceVersion = buildInfo.Version,
         ActivitySourceName = <PROJECT>Telemetry.ActivitySourceName,
     }
 );
@@ -2420,13 +2846,27 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
-app.UseCors();
+
+// The built front-end, when it is in `wwwroot` (the Docker image).  Public, and before request
+// logging so assets do not flood the log.
+app.Use<PROJECT>Spa();
 app.UseSerilogRequestLogging();
 
 // Authentication, then authorization: before the endpoints they protect.
 app.Use<PROJECT>Security();
 
-app.Map<PROJECT>Endpoints();
+// The API lives under /api so it cannot collide with front-end routes such as /notes.
+app.Map<PROJECT>Endpoints("/api");
+
+// Anything else that is not a file is a client-side route: index.html.
+app.Map<PROJECT>SpaFallback();
+
+Log.Information(
+    "Starting {Version} (commit {Commit}, built {BuiltAtUtc})",
+    buildInfo.Version,
+    buildInfo.ShortCommit,
+    buildInfo.BuiltAtUtc?.ToString("u") ?? "unknown"
+);
 
 app.Run();
 ```
@@ -2577,7 +3017,7 @@ public static class DebugReplExtensions
 
 ### `src/backend/runtime/Properties/launchSettings.json`
 
-`applicationUrl` is the single source of the backend port: it feeds `kubb.config.ts` (`baseURL`).  Pick a free port per project.
+`applicationUrl` sets the backend port; `vite.config.ts` repeats it as the fallback target of the `/api` dev proxy (used when Vite runs without Aspire; under Aspire the URL is injected).  Keep the two equal and pick a free port per project.
 
 ```json
 {

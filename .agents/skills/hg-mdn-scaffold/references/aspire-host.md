@@ -12,7 +12,7 @@ Notes:
   package versions equal to the installed Aspire CLI's version line.
 - `Projects.<PROJECT>_Runtime` is generated from the project reference; dots in the project name
   become underscores.
-- **Ports:** fixed are the backend port (Kubb's `baseURL` reads it from `launchSettings.json`) and the
+- **Ports:** fixed are the backend port (`launchSettings.json`, repeated as the `/api` proxy fallback in `vite.config.ts`; under Aspire the URL is injected) and the
   AppHost's dashboard, OTLP, and resource-service ports in `host/Properties/launchSettings.json`; change
   them when another AppHost on the machine already uses them.  The front-end and LibreDB ports are assigned
   by Aspire: never pin them (`aspire describe`).
@@ -93,9 +93,12 @@ if (builder.ExecutionContext.IsRunMode)
 
 // Front-end (Vite).  Match `WithNpm()` to the package manager in `.config/mise.toml`.
 // No fixed port: Aspire assigns a free one (shown in the dashboard), so projects never collide.
+// `WithReference(backend)` hands Vite the backend URL (`services__app-backend__http__0`), which
+// `vite.config.ts` uses as the target of the `/api` proxy: the browser only talks to Vite.
 var frontend = builder
     .AddViteApp(name: "app-frontend", appDirectory: "../src/app")
     .WithNpm()
+    .WithReference(backend)
     .WaitFor(backend);
 
 // Kubb in watch mode: regenerates the TypeScript client when the backend rewrites the OpenAPI

@@ -23,6 +23,8 @@ Versions are a snapshot: replace each with the latest stable at scaffold time.
 
 The baseline uses npm; the pnpm and yarn columns are not exercised by it.
 
+**One origin:** the API paths start with `/api`, so the generated client calls relative URLs; the backend serves the built front-end in production and `vite.config.ts` proxies `/api` in development.  No CORS, no base URL (`hg-mdn-frontend`, `references/config-deploy.md`).
+
 **Generated files:** `src/api/<project>-api.json` (OpenAPI document, written by the backend build) is
 committed.  `src/api/generated/` (Kubb output) is git-ignored; `npm test` and `npm run build`
 regenerate it first, and Aspire runs Kubb in watch mode.
@@ -90,7 +92,7 @@ instead of adding the plugins separately.
 
 ### `src/app/vite.config.ts`
 
-`vue-router/vite` provides file-based routing (the standalone `unplugin-vue-router` package is deprecated).  `VueRouter()` must come before `vue()`.  Imports `defineConfig` from `vitest/config` so the `test` block type-checks.  **Icons:** the `icons` map points Nuxt UI's default (lucide) slots at hugeicons and `icon.clientBundle` bundles them, so the shipped app makes no icon requests; icons built dynamically are invisible to the scan and go in `clientBundle.icons` (the front-end skill, `references/nuxt-ui.md`).  `base` honors `VITE_BASE` for sub-path hosting; `test.setupFiles` installs the network guard (`src/test/setup.ts`).
+`vue-router/vite` provides file-based routing (the standalone `unplugin-vue-router` package is deprecated).  `VueRouter()` must come before `vue()`.  Imports `defineConfig` from `vitest/config` so the `test` block type-checks.  **Icons:** the `icons` map points Nuxt UI's default (lucide) slots at hugeicons and `icon.clientBundle` bundles them, so the shipped app makes no icon requests; icons built dynamically are invisible to the scan and go in `clientBundle.icons` (the front-end skill, `references/nuxt-ui.md`).  `base` honors `VITE_BASE` for sub-path hosting; `test.setupFiles` installs the network guard (`src/test/setup.ts`).  **`server.proxy`** forwards `/api` to the backend (`vite preview` reuses it); Aspire provides the URL as `services__app-backend__http__0` through `.WithReference(backend)` in `host/AppHost.cs`.
 
 ```ts
 import path from "node:path";
@@ -152,6 +154,11 @@ const icons = {
   warning: "i-hugeicons-alert-01",
 };
 
+// The backend the `/api` proxy forwards to.  Aspire injects the URL when the front-end resource has
+// `.WithReference(backend)` (`host/AppHost.cs`); the fallback is `applicationUrl` in the backend's
+// `launchSettings.json`, for running Vite alone.
+const apiTarget = process.env["services__app-backend__http__0"] ?? "http://localhost:<BACKEND_API_PORT>";
+
 // https://vite.dev/config/
 export default defineConfig({
   // Hosted under a sub-path (for example `/web/`)?  Build with `VITE_BASE=/web/ npm run build`.
@@ -190,6 +197,9 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "src"),
     },
   },
+  // The browser only ever talks to Vite; `/api` is forwarded to the backend, so development is
+  // same-origin like production (no CORS, cookies behave).  `vite preview` reuses this proxy.
+  server: { proxy: { "/api": apiTarget } },
   test: {
     environment: "happy-dom",
     include: ["src/**/*.test.ts"],
@@ -267,7 +277,7 @@ export default defineConfig({
 
 ### `src/app/src/env.d.ts`
 
-Types `import.meta.env` (`VITE_API_BASE_URL` only; `VITE_BASE` is read in `vite.config.ts`).  Only `VITE_`-prefixed variables reach the browser; they are public.
+Types `import.meta.env` (`VITE_API_BASE_URL` only, and only needed when the front-end is hosted apart from the API; `VITE_BASE` is read in `vite.config.ts`).  Only `VITE_`-prefixed variables reach the browser; they are public.
 
 ```ts
 /// <reference types="vite/client" />
@@ -275,7 +285,7 @@ Types `import.meta.env` (`VITE_API_BASE_URL` only; `VITE_BASE` is read in `vite.
 // Typed `import.meta.env`.  Only `VITE_`-prefixed variables reach the browser bundle; anything
 // else stays on the build machine.  They are public: never put a secret in one.
 interface ImportMetaEnv {
-  /** Backend origin for the generated client; unset keeps the URL baked in by Kubb. */
+  /** Backend origin for the generated client; unset (the default) means same-origin `/api`. */
   readonly VITE_API_BASE_URL?: string;
 }
 
@@ -359,7 +369,7 @@ Lints `.ts` and `.vue`.  `oxlint` prints nothing and exits 0 when clean; exits 1
 
 ### `src/app/kubb.config.ts`
 
-`baseURL` is the backend `applicationUrl` from `launchSettings.json`.  The generated client calls the backend cross-origin (CORS is open to any origin in the template; restrict it before using cookie authentication).  For same-origin hosting (cookies, single container), drop `baseURL` and proxy the API paths in `vite.config.ts` `server.proxy` (full recipe: the front-end skill, `references/config-deploy.md`).  `pluginZod` generates form-validation schemas from the same OpenAPI constraints, so limits cannot drift from the backend.
+There is no `baseURL`: the OpenAPI paths already start with `/api`, so the generated calls are relative and go to whichever origin served the app (the backend in production, the Vite proxy in development).  Hosting the front-end apart from the API is the alternative recipe in the front-end skill, `references/config-deploy.md`.  `pluginZod` generates form-validation schemas from the same OpenAPI constraints, so limits cannot drift from the backend.
 
 ```ts
 import { defineConfig } from "kubb";
@@ -390,8 +400,10 @@ export default defineConfig({
     // that cannot drift from the backend.  Import from `@/api/generated/zod/<operation>Schema`.
     pluginZod({ output: { path: "./zod", mode: "directory" } }),
     // https://kubb.dev/plugins/plugin-fetch/reference/options
+    // No `baseURL`: the OpenAPI paths already start with `/api`, so the generated calls are
+    // relative and the SPA talks to whatever origin served it (the backend in production, the
+    // Vite dev proxy locally; see `vite.config.ts`).
     pluginFetch({
-      baseURL: "http://localhost:<BACKEND_API_PORT>", // 👈 From the launch profile for the backend
       output: {
         path: "./clients",
         mode: "directory",
@@ -471,6 +483,8 @@ app.mount("#app");
 
 ### `src/app/src/pages/index.vue`
 
+Shows the backend health and, under it, the running build (`BuildInfoLabel`).  In a real app shell put the label where people look when reporting a problem: the sidebar footer or the user menu.
+
 ```vue
 <script setup lang="ts">
 // `ref`, `onMounted`, `storeToRefs`, `useDark` etc. are auto-imported.
@@ -502,6 +516,7 @@ onMounted(() => store.refresh());
         <p class="text-muted">
           Backend is <UKbd :value="health?.status" /> as of {{ health?.checkedAtUtc }}.
         </p>
+        <BuildInfoLabel v-if="health" :build="health.build" class="mt-2" />
       </AsyncContent>
 
       <template #footer>
@@ -572,7 +587,11 @@ describe("useHealthStore", () => {
   });
 
   it("stores the health response on refresh", async () => {
-    const response = { status: "Healthy", checkedAtUtc: "2026-10-09T00:00:00Z" };
+    const response = {
+      status: "Healthy",
+      checkedAtUtc: "2026-10-09T00:00:00Z",
+      build: { version: "1.4.0", commit: "3f2a1bc", builtAtUtc: null },
+    };
     apiMocks.getHealth.mockReturnValue({ unwrap: () => Promise.resolve(response) });
 
     const store = useHealthStore();
@@ -1193,13 +1212,19 @@ async function mountAt(path: string) {
 describe("App", () => {
   it("renders the home page with the backend health", async () => {
     api.getHealth.mockReturnValue({
-      unwrap: () => Promise.resolve({ status: "Healthy", checkedAtUtc: "2026-10-09T00:00:00Z" }),
+      unwrap: () =>
+        Promise.resolve({
+          status: "Healthy",
+          checkedAtUtc: "2026-10-09T00:00:00Z",
+          build: { version: "0.0.0-dev", commit: null, builtAtUtc: null },
+        }),
     });
 
     const { root, unmount } = await mountAt("/");
 
     await vi.waitFor(() => expect(root.textContent).toContain("Healthy"));
     expect(root.textContent).toContain("<PROJECT>");
+    expect(root.textContent).toContain("Version 0.0.0-dev");
 
     unmount();
   });
@@ -1209,7 +1234,12 @@ describe("App", () => {
     // (not `fetch`), and a failed fetch is silent, so only this spy notices.
     const request = vi.spyOn(https, "request");
     api.getHealth.mockReturnValue({
-      unwrap: () => Promise.resolve({ status: "Healthy", checkedAtUtc: "2026-10-09T00:00:00Z" }),
+      unwrap: () =>
+        Promise.resolve({
+          status: "Healthy",
+          checkedAtUtc: "2026-10-09T00:00:00Z",
+          build: { version: "0.0.0-dev", commit: null, builtAtUtc: null },
+        }),
     });
 
     const { root, unmount } = await mountAt("/");
@@ -1283,7 +1313,7 @@ export function toSaveFailure(err: unknown, fallback: string): SaveResult & { ok
 
 ### `src/app/src/api/setup.ts`
 
-Called once from `main.ts`.  `VITE_API_BASE_URL` re-points a built app at another backend without regenerating the client; safe to call twice (replaces its own interceptor).  Any 401 dispatches `api:unauthorized`, which the router's login redirect listens for.
+Called once from `main.ts`.  `VITE_API_BASE_URL` (unset by default: same-origin) re-points a built app at another backend without regenerating the client; safe to call twice (replaces its own interceptor).  Any 401 dispatches `api:unauthorized`, which the router's login redirect listens for.
 
 ```ts
 import { client } from "@/api/generated/.kubb/client";
@@ -1297,18 +1327,15 @@ let unauthorizedInterceptor: number | undefined;
  * Safe to call again: it replaces what it registered before.
  */
 export function configureApiClient() {
-  // Point a built app at another backend without regenerating the client: set
-  // `VITE_API_BASE_URL` when building (see `.env.production` or the CI environment).  An empty
-  // string means same-origin (the SPA is served by the backend).  `baseURL` is otherwise the
-  // value Kubb baked in from `kubb.config.ts`.
+  // The generated calls are relative (`/api/...`): same-origin in production (the backend serves
+  // the SPA) and in development (the Vite proxy).  Only when the SPA is hosted apart from the API
+  // set `VITE_API_BASE_URL` when building (see "Hosting apart from the API" in `config-deploy.md`:
+  // it also needs CORS on the backend, and `credentials: "include"` for cookie authentication).
   const baseURL = import.meta.env.VITE_API_BASE_URL;
 
   if (baseURL !== undefined) {
     client.setConfig({ ...client.getConfig(), baseURL });
   }
-
-  // Send cookies on cross-origin calls (needed for cookie auth; harmless otherwise).
-  client.setConfig({ ...client.getConfig(), credentials: "include" });
 
   // Interceptors run in registration order.  Error interceptors see every non-2xx `ResponseError`
   // before it is thrown: the place for cross-cutting reactions such as "401 -> sign in".
@@ -1327,7 +1354,7 @@ export function configureApiClient() {
 
 ### `src/app/src/api/errors.test.ts`
 
-Runs the real generated client with only `fetch` stubbed.
+Runs the real generated client with only `fetch` stubbed.  `setConfig` merges, so the cleanup names `baseURL` explicitly; otherwise a test that sets it leaks into the next.
 
 ```ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1356,7 +1383,9 @@ let originalConfig: ReturnType<typeof client.getConfig>;
 beforeEach(() => (originalConfig = { ...client.getConfig() }));
 
 afterEach(() => {
-  client.setConfig(originalConfig);
+  // `setConfig` merges, so a key the test added survives unless it is named: restore `baseURL`
+  // explicitly (it is unset by default), or the next test inherits the previous test's backend.
+  client.setConfig({ ...originalConfig, baseURL: originalConfig.baseURL });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -1385,45 +1414,51 @@ describe("API errors from the real generated client", () => {
   });
 });
 
+/** Stubs `fetch` with a healthy response; the generated client hands it a `Request`. */
+function stubHealthFetch() {
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ status: "Healthy", checkedAtUtc: "x" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  return () =>
+    new URL((fetchMock.mock.calls[0] as unknown as [Request])[0].url, window.location.href);
+}
+
 describe("configureApiClient", () => {
-  it("points the client at VITE_API_BASE_URL when it is set", async () => {
-    vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
+  it("calls a relative /api URL by default: same-origin, with no base URL configured", async () => {
     configureApiClient();
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ status: "Healthy", checkedAtUtc: "x" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const requestUrl = stubHealthFetch();
 
     await getHealth().unwrap();
 
-    // The generated client hands `fetch` a `Request`.
-    const [request] = fetchMock.mock.calls[0] as unknown as [Request];
-    expect(request.url).toBe("https://api.example.test/health");
+    expect(requestUrl().origin).toBe(window.location.origin);
+    expect(requestUrl().pathname).toBe("/api/health");
+  });
+
+  it("points the client at VITE_API_BASE_URL when it is set", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
+    configureApiClient();
+    const requestUrl = stubHealthFetch();
+
+    await getHealth().unwrap();
+
+    expect(requestUrl().href).toBe("https://api.example.test/api/health");
   });
 
   it("treats an empty VITE_API_BASE_URL as same-origin", async () => {
     vi.stubEnv("VITE_API_BASE_URL", "");
     configureApiClient();
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ status: "Healthy", checkedAtUtc: "x" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const requestUrl = stubHealthFetch();
 
     await getHealth().unwrap();
 
-    // A relative URL resolves against the page's own origin.
-    const [request] = fetchMock.mock.calls[0] as unknown as [Request];
-    const url = new URL(request.url);
-    expect(url.origin).toBe(window.location.origin);
-    expect(url.pathname).toBe("/health");
+    expect(requestUrl().origin).toBe(window.location.origin);
+    expect(requestUrl().pathname).toBe("/api/health");
   });
 
   it("runs the error interceptor for a 401, once even when configured twice", async () => {
@@ -1560,6 +1595,78 @@ describe("AsyncContent", () => {
     });
 
     expect(wrapper.text()).toContain("Create your first note");
+  });
+});
+```
+
+### `src/app/src/components/BuildInfoLabel.vue`
+
+The running build, from `GET /api/health` (the version, the commit, and the build time the backend stamped; `hg-mdn-backend`, `references/build-info.md`).  The commit and the build time are optional: a build without them shows only the version.
+
+```vue
+<script setup lang="ts">
+import type { BuildResponse } from "@/api/generated/types/BuildResponse";
+
+// Which build is running: the version, commit, and build time the backend reports on
+// `/api/health` (stamped by the build, see `BuildInfo` in the backend).  Show it wherever people
+// report problems from: a footer, an about dialog, the user menu.
+const props = defineProps<{ build: BuildResponse }>();
+
+const shortCommit = computed(() => props.build.commit?.slice(0, 7) ?? null);
+const builtAtLabel = computed(() =>
+  props.build.builtAtUtc
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
+        new Date(props.build.builtAtUtc),
+      )
+    : null,
+);
+</script>
+
+<template>
+  <p class="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+    <span>Version {{ build.version }}</span>
+    <code v-if="shortCommit" :title="build.commit ?? undefined">{{ shortCommit }}</code>
+    <time v-if="build.builtAtUtc" :datetime="build.builtAtUtc">Built {{ builtAtLabel }}</time>
+  </p>
+</template>
+```
+
+### `src/app/src/components/BuildInfoLabel.test.ts`
+
+```ts
+import { describe, expect, it } from "vitest";
+import { mountWithUi } from "@/test/mount";
+import BuildInfoLabel from "./BuildInfoLabel.vue";
+
+describe("BuildInfoLabel", () => {
+  it("shows the version, the short commit, and the build time", () => {
+    const wrapper = mountWithUi(BuildInfoLabel, {
+      props: {
+        build: {
+          version: "1.4.0",
+          commit: "3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff",
+          builtAtUtc: "2026-10-11T14:02:03Z",
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Version 1.4.0");
+    expect(wrapper.get("code").text()).toBe("3f2a1bc");
+    expect(wrapper.get("code").attributes("title")).toBe(
+      "3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff",
+    );
+    expect(wrapper.get("time").attributes("datetime")).toBe("2026-10-11T14:02:03Z");
+    expect(wrapper.get("time").text()).toMatch(/^Built .*2026/);
+  });
+
+  it("shows only the version for a build with no stamp (no git, no build arg)", () => {
+    const wrapper = mountWithUi(BuildInfoLabel, {
+      props: { build: { version: "0.0.0-dev", commit: null, builtAtUtc: null } },
+    });
+
+    expect(wrapper.text()).toBe("Version 0.0.0-dev");
+    expect(wrapper.find("code").exists()).toBe(false);
+    expect(wrapper.find("time").exists()).toBe(false);
   });
 });
 ```
