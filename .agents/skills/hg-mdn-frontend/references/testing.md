@@ -291,7 +291,12 @@ The baseline smoke test (`App.test.ts`) is the same shape for the home page.  It
     // (not `fetch`), and a failed fetch is silent, so only this spy notices.
     const request = vi.spyOn(https, "request");
     api.getHealth.mockReturnValue({
-      unwrap: () => Promise.resolve({ status: "Healthy", checkedAtUtc: "2026-10-09T00:00:00Z" }),
+      unwrap: () =>
+        Promise.resolve({
+          status: "Healthy",
+          checkedAtUtc: "2026-10-09T00:00:00Z",
+          build: { version: "0.0.0-dev", commit: null, builtAtUtc: null },
+        }),
     });
 
     const { root, unmount } = await mountAt("/");

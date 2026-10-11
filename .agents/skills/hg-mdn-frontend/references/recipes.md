@@ -4,7 +4,7 @@ Checklists in order of work.  Each names the reference for detail and, where a N
 
 ## Add a page that lists things
 
-1. **Backend contract exists** (endpoint with `WithName`/`WithSummary`/`WithDescription`); `dotnet build` refreshed `src/api/<project>-api.json`; `npm run generate`.  Read the generated function's JSDoc.
+1. **Backend contract exists** (endpoint with `WithName`/`WithSummary`/`WithDescription`); `mise run openapi` (any backend build) refreshed `src/api/<project>-api.json`; commit it; `npm run generate`.  Read the generated function's JSDoc.
 2. **Store** `stores/<thing>-store.ts`: `items`, `loading`, `error`, `load()` with the stale-response guard (`data-loading.md`; copy the nearest store, `health-store.ts`, and add the guard from the `notes-store.ts` listing).
 3. **Page** `pages/<things>/index.vue`: load in `onMounted` (or `watch(..., { immediate: true })` when a filter drives it, never both), `<AsyncContent :loading :error :empty>` around a `UTable`/list; `definePage({ meta: { title } })` (`ui-states.md`, `lists-tables.md`).
 4. **Navigation entry** in the app's navigation data (the `layouts/app-navigation.ts` listing in `nuxt-ui.md`, once you have a layout).
@@ -65,7 +65,7 @@ A sketch; no tested example in the references backs it.
 
 ## React to a backend contract change
 
-1. `npm run generate`, then `npm run build`: `vue-tsc` lists every call site and component that no longer fits.
+1. `mise run openapi` (the backend build rewrites the committed document; commit it), `npm run generate`, then `npm run build`: `vue-tsc` lists every call site and component that no longer fits.
 2. Fix stores first (types flow from there), then pages and forms; a changed limit needs no edit (the Zod schema regenerated).
 3. Update mocks in tests (`vue-tsc` flags mismatches in typed fixtures); add a test for any new rule or status.
 4. Read the new JSDoc: the behavior description may have changed.

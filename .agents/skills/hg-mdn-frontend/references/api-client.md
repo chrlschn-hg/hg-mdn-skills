@@ -141,7 +141,7 @@ The shipped `errors.test.ts` runs the **real generated client** with only `fetch
 
 ## Configuring the client
 
-The generated file sets `baseURL` from `kubb.config.ts` (the backend `applicationUrl`).  Everything else is configured once, before the app mounts.  `configureApiClient` lets `VITE_API_BASE_URL` override the base URL at build time (empty means same-origin) and is **idempotent**: calling it again replaces its 401 interceptor instead of stacking another.
+The generated calls are **relative** (`/api/health`) and the config has no `baseURL`, so the SPA calls whichever origin served it (the backend in production, the Vite proxy in development; `config-deploy.md`).  Everything is configured once, before the app mounts.  `configureApiClient` lets `VITE_API_BASE_URL` set a base URL at build time, only for a front-end hosted apart from the API (`config-deploy.md`), and is **idempotent**: calling it again replaces its 401 interceptor instead of stacking another.
 
 `src/app/src/api/setup.ts`
 
@@ -157,18 +157,15 @@ let unauthorizedInterceptor: number | undefined;
  * Safe to call again: it replaces what it registered before.
  */
 export function configureApiClient() {
-  // Point a built app at another backend without regenerating the client: set
-  // `VITE_API_BASE_URL` when building (see `.env.production` or the CI environment).  An empty
-  // string means same-origin (the SPA is served by the backend).  `baseURL` is otherwise the
-  // value Kubb baked in from `kubb.config.ts`.
+  // The generated calls are relative (`/api/...`): same-origin in production (the backend serves
+  // the SPA) and in development (the Vite proxy).  Only when the SPA is hosted apart from the API
+  // set `VITE_API_BASE_URL` when building (see "Hosting apart from the API" in `config-deploy.md`:
+  // it also needs CORS on the backend, and `credentials: "include"` for cookie authentication).
   const baseURL = import.meta.env.VITE_API_BASE_URL;
 
   if (baseURL !== undefined) {
     client.setConfig({ ...client.getConfig(), baseURL });
   }
-
-  // Send cookies on cross-origin calls (needed for cookie auth; harmless otherwise).
-  client.setConfig({ ...client.getConfig(), credentials: "include" });
 
   // Interceptors run in registration order.  Error interceptors see every non-2xx `ResponseError`
   // before it is thrown: the place for cross-cutting reactions such as "401 -> sign in".
@@ -185,13 +182,9 @@ export function configureApiClient() {
 }
 ```
 
-- `client.setConfig({...})` takes `baseURL`, `headers`, `credentials`, `throwOnError`, `auth` (a bearer token or a function returning one, for operations that declare security).  Spread `client.getConfig()` so you extend rather than replace.
+- `client.setConfig({...})` takes `baseURL`, `headers`, `credentials`, `throwOnError`, `auth` (a bearer token or a function returning one, for operations that declare security).  Spread `client.getConfig()` so you extend rather than replace.  It **merges**: a key you set stays set until you name it again (tests restore `baseURL` explicitly for that reason).
 - `client.interceptors.request | response | error` each take `.use(fn)`; `fn` receives the value and returns it (modified or not).  `.use` returns an id for `.eject(id)`.
-
-## Dev and production origins
-
-In development the Vite origin calls the backend origin directly; the template's CORS accepts any origin, so restrict it to the SPA origin before you use cookie auth.  For cookie auth or a single deployable, switch to same-origin: the API moves under `/api`, the front-end drops `baseURL`, Vite proxies `/api` in development, and the runtime serves the built app from `wwwroot` in production.  The whole recipe (backend, Vite, Dockerfile, gotchas) and the build-time overrides are in `config-deploy.md`.
 
 ## When `fetch` is acceptable
 
-Use the generated client for every call.  Call `fetch` (or `EventSource`) directly only for an endpoint OpenAPI cannot describe, typically **server-sent events** or streaming responses.  Put it in one small module or store action, type the payload yourself, reuse `client.getConfig().baseURL` and `credentials` so it follows the same configuration, and test it with a stubbed `fetch`.
+Use the generated client for every call.  Call `fetch` (or `EventSource`) directly only for an endpoint OpenAPI cannot describe, typically **server-sent events** or streaming responses.  Put it in one small module or store action, type the payload yourself, prefix the path with `client.getConfig().baseURL ?? ""` (undefined by default: same-origin) and reuse `credentials` so it follows the same configuration, and test it with a stubbed `fetch`.
