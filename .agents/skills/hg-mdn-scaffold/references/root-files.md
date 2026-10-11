@@ -38,6 +38,11 @@ postgres = "18" # provides `psql` (CLI only; the server runs in Aspire)
 "dotnet:CSharpier" = "1.3.0"
 "dotnet:CsharpRepl" = "0.9.2"
 "dotnet:dotnet-ef" = "10.0.12"
+"github:cesarferreira/stax" = "0.115.0" # stacked PRs: `st` / `stax` (references/stax.md)
+
+[tasks.stax-skill]
+description = "Refresh the vendored stax agent skill from the pinned stax version"
+run = "mkdir -p .agents/skills/stax && st --skill > .agents/skills/stax/SKILL.md"
 
 [tasks.up]
 description = "Start the Aspire stack (detached, non-interactive)"
@@ -212,12 +217,13 @@ Fill the title line and the context sentences from the user's answers; the rest 
 - `hg-mdn-backend`: building the .NET backend (feature slices, endpoints, data, telemetry, testing)
 - `hg-mdn-frontend`: building the Vue front-end (Nuxt UI, Pinia, API client)
 - `hg-mdn-planning`: planning a feature or edit (requirements, draft, spec, and work log in `.agents/plans`)
+- `stax`: stacked branches and PRs with `st` (vendored from `st --skill`; refresh with `mise run stax-skill`)
 - `hg-mdn-scaffold`: setting up foundational scaffolding that is missing
 
 ## Working agreements
 
 - Plans, specs, and work logs live in `.agents/plans`; throwaway agent output goes in `.agents/scratch` (git-ignored)
-- Do not commit or push unless asked.  Commit messages are conventional: `feat(area): Sentence-case description` (also `fix`, `chore`, `refactor`, `docs`, `test`); one dense word for the area
+- Do not commit or push unless asked.  Stacked branches and PRs go through `st` (stax: `st create -am`, `st modify -a`, `st submit`; see the `stax` skill); `st ci --watch --strict` watches CI.  Commit messages are conventional: `feat(area): Sentence-case description` (also `fix`, `chore`, `refactor`, `docs`, `test`); one dense word for the area
 - Before handing work back: `mise run check` passes (build, front-end type check, lint, format check, all tests; database tests need Docker) and the build reports no new warnings (it enforces braces and exhaustive enum switches)
 
 ## Tooling
@@ -333,24 +339,46 @@ dotnet_diagnostic.IDE0010.severity = warning
 {
   "recommendations": [
     "hverlin.mise-vscode",
+    "editorconfig.editorconfig",
     "ms-dotnettools.csdevkit",
     "ms-dotnettools.csharp",
     "microsoft-aspire.aspire-vscode",
+    "csharpier.csharpier-vscode",
     "k--kato.docomment",
     "aaron-bond.better-comments",
-    "csharpier.csharpier-vscode",
     "jeremycaron.csharp-organize-usings",
     "Vue.volar",
     "bradlc.vscode-tailwindcss",
-    "oxc.oxc-vscode"
+    "oxc.oxc-vscode",
+    "davidanson.vscode-markdownlint",
+    "yzhang.markdown-all-in-one"
   ]
 }
 ```
 
+| Extension | For |
+|---|---|
+| `hverlin.mise-vscode` | Mise tools, tasks, and environment in the editor |
+| `editorconfig.editorconfig` | honors `.editorconfig` for every file type (the C# extension reads it itself) |
+| `ms-dotnettools.csdevkit`, `ms-dotnettools.csharp` | C# language support, test explorer, solution explorer |
+| `microsoft-aspire.aspire-vscode` | the Aspire host and dashboard |
+| `csharpier.csharpier-vscode` | C# and XML formatting; finds the pinned tool in `.config/dotnet-tools.json` |
+| `Vue.volar` | Vue, TypeScript in `.vue` files |
+| `oxc.oxc-vscode` | `oxlint` diagnostics and fixes, `oxfmt` formatting (needs `oxlint`/`oxfmt` installed in `src/app`: `npm install`) |
+| `bradlc.vscode-tailwindcss` | Tailwind class completion |
+| `davidanson.vscode-markdownlint` | Markdown lint (warnings only; it never rewrites a file) |
+| `yzhang.markdown-all-in-one` | preview, table of contents, list continuation, table formatting **on demand** |
+
 ### `.vscode/settings.json`
+
+**Format on save** runs CSharpier for C# and XML (`.csproj`, `.props`, `.slnx`) and `oxfmt` (through the Oxc extension) for TypeScript, Vue, CSS, and JSON, the same tools `mise run format` and CI use.  **Markdown is deliberately excluded**: a formatter pads tables and rewrites list markers, which makes diffs noisy.  Format a Markdown file on demand with the Markdown All in One command (**Format Tables**) if you want to.
 
 ```json
 {
+  "editor.formatOnSaveMode": "file",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
   "[csharp]": {
     "editor.defaultFormatter": "csharpier.csharpier-vscode",
     "editor.formatOnSave": true
@@ -359,6 +387,30 @@ dotnet_diagnostic.IDE0010.severity = warning
     "editor.defaultFormatter": "csharpier.csharpier-vscode",
     "editor.formatOnSave": true
   },
+
+  "[typescript]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "[javascript]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "[vue]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "[css]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "[json]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "[jsonc]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
+  "editor.codeActionsOnSave": { "source.fixAll.oxc": "explicit" },
+
+  "[markdown]": {
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": { "comments": "off", "strings": "off", "other": "off" },
+    "files.trimTrailingWhitespace": false
+  },
+  "markdownlint.config": {
+    "MD013": false,
+    "MD033": false,
+    "MD041": false,
+    "MD024": { "siblings_only": true }
+  },
+
+  "dotnet.defaultSolution": "<project>.slnx",
   "files.associations": {
     "*.css": "tailwindcss",
     "appsettings*.json": "jsonc",
@@ -370,10 +422,6 @@ dotnet_diagnostic.IDE0010.severity = warning
   },
   "tailwindCSS.classAttributes": ["class", "ui"],
   "tailwindCSS.classFunctions": ["defineAppConfig"],
-  "[typescript]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
-  "[vue]": { "editor.defaultFormatter": "oxc.oxc-vscode", "editor.formatOnSave": true },
-  "[json]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
-  "[jsonc]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
   "files.watcherExclude": {
     "**/node_modules/**": true,
     "**/bin/**": true,
@@ -386,6 +434,28 @@ dotnet_diagnostic.IDE0010.severity = warning
     "AppSettings.cs": "AppSettings.*.cs",
     "appsettings.json": "appsettings.*.json"
   }
+}
+```
+
+- **Why each Markdown setting:** `files.trimTrailingWhitespace` is off because two trailing spaces are a Markdown line break; word wrap is on because prose lines are long; `MD013` (line length), `MD033` (inline HTML, used in skills), and `MD041` (first line a heading, not true of front matter files) are the lint rules that fight this repository's docs; duplicate headings are fine under different parents.
+- **The CLI agrees with the editor:** `.oxfmtrc.json` ignores `**/*.md` (`frontend-templates.md`), so `npm run fmt` and `mise run format` never touch Markdown either.  `oxfmt` otherwise pads tables and rewrites `*` bullets to `-`.
+- **CSharpier** finds its version from `.config/dotnet-tools.json`, which mirrors the pin in `mise.toml`: keep the two in sync (it is what makes the extension, `mise run format`, and CI agree).
+- `source.fixAll.oxc` applies safe `oxlint` fixes on save; drop it if you prefer fixes by hand (`npm run lint:fix`).
+- Run once after cloning: `mise install`, `npm install --prefix src/app`, then **Oxc: Restart oxfmt Server** if the extension was already open.
+
+### `.vscode/tasks.json`
+
+Mise tasks from the command palette (**Tasks: Run Task**):
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "up", "type": "shell", "command": "mise run up", "problemMatcher": [] },
+    { "label": "down", "type": "shell", "command": "mise run down", "problemMatcher": [] },
+    { "label": "check", "type": "shell", "command": "mise run check", "group": { "kind": "build", "isDefault": true }, "problemMatcher": [] },
+    { "label": "format", "type": "shell", "command": "mise run format", "problemMatcher": [] }
+  ]
 }
 ```
 

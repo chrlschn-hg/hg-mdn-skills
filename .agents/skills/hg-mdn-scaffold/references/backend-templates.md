@@ -32,7 +32,7 @@ src/backend/
 
 ### `src/backend/Directory.Build.props`
 
-`GenerateDocumentationFile` matters: the OpenAPI generator turns XML doc comments into schema and operation descriptions, so `///` comments on contracts reach the generated client.  `EnforceCodeStyleInBuild` makes `dotnet build` report the `.editorconfig` rules (braces, exhaustive enum switches).
+`GenerateDocumentationFile` matters: the OpenAPI generator turns XML doc comments into schema and operation descriptions, so `///` comments on contracts reach the generated client.  `EnforceCodeStyleInBuild` makes `dotnet build` report the `.editorconfig` rules (braces, exhaustive enum switches), and `TreatWarningsAsErrors` makes every warning an error (`hg-mdn-backend`, `references/static-analysis.md`: `AnalysisLevel`, banned APIs, custom analyzers).
 
 ```xml
 <Project>
@@ -45,6 +45,8 @@ src/backend/
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- Applies the .editorconfig style rules (braces, exhaustive switches) during `dotnet build`. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Zero tolerance: every compiler, analyzer, and NuGet warning fails the build. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 </Project>
 ```

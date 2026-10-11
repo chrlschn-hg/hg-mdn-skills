@@ -63,6 +63,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
    | `.mcp.json` (Aspire, Playwright, Nuxt UI) | yes | 3 |
    | Devcontainer or Codespaces (step 5) | yes | 5 |
    | How people sign in (cookie, JWT bearer, OpenID Connect) | later (placeholder) | 6 |
+   | Tenancy: single-tenant, or multi-tenant (the tenant id is part of every key; `hg-mdn-backend` `references/data-efcore.md`) | single-tenant | 6 |
    | CSharpRepl hook (step 10), LibreDB | yes | 9, 10 |
    | Serve the SPA from the runtime (single container) | no (cross-origin) | 12 |
    | GitHub Actions (step 13) and a deployment target | CI yes, deploy later | 13 |
@@ -76,10 +77,13 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Package manager: `npm` ships with `node`; `pnpm` and `yarn` get their own entries (variants: `references/frontend-templates.md`)
   - Database CLI: `postgres` (`psql`), `github:microsoft/go-sqlcmd` (`sqlcmd`), `redis` (`redis-cli`); check `mise registry`; swapping providers: `references/data-templates.md`
   - .NET tools: always <mise_config_default_dotnet_tools />
+  - Stacked PRs: `github:cesarferreira/stax` (pinned; installs `st` and `stax`).  Then, per machine: `st setup --yes` and `st doctor` (setup, usage, and CI watching: `references/stax.md`)
   - Cloud CLIs (`aws-cli`, `gcloud`, `azure-cli`) with their config under `.config` (see the template); other tools asked for
   - Tasks `up`, `down`, `build`, `openapi`, `generate`, `test`, `format`, `lint`, `check` from the template; `mise tasks` lists them.  `mise run check` is the definition of done
   - Verify: `mise install`, `dotnet --version`, `mise tasks`
 3. Set up skills, `AGENTS.md`, `README.md`, and editor config (templates: `references/root-files.md`)
+  - VS Code (`.vscode/extensions.json`, `settings.json`, `tasks.json`): format on save with CSharpier (C#, XML) and `oxfmt` through the Oxc extension (TypeScript, Vue, CSS, JSON); `source.fixAll.oxc` for lint fixes; Markdown tools (markdownlint, Markdown All in One) but **no format on save for Markdown** (formatters pad tables and churn diffs; `.oxfmtrc.json` ignores `**/*.md` so the CLI agrees)
+  - Vendor the stax agent skill: `mise run stax-skill` (writes `.agents/skills/stax/SKILL.md` from `st --skill`, matching the pinned version); list it in `AGENTS.md` (`references/stax.md`)
   - `.agents/skills` is the root.  Copy `hg-mdn-backend`, `hg-mdn-frontend`, and `hg-mdn-planning` into it (and `hg-mdn-scaffold` if the user wants it)
   - Symlinks, committed with the project (the baseline has none): `.claude/skills` -> `.agents/skills` and `./CLAUDE.md` -> `./AGENTS.md` for Claude Code, always; `.codex/skills` (Codex), `.github/skills` and `.github/copilot-instructions.md` (Copilot) only for the agents named in step 0
   - `./AGENTS.md` and `README.md` if absent: fill the title and context from the step 0 answers and adjust the rest of the template (package manager, skills actually present, agents); keep "Working agreements" (plans in `.agents/plans`, conventional commits, no commits unless asked, `mise run check`)
@@ -106,11 +110,13 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Every endpoint gets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` lints the OpenAPI document, so a missing one fails `mise run test` and CI, not `dotnet build` (`hg-mdn-backend`, `references/openapi-contract.md`)
   - `Program.cs` carries `HttpExceptionHandler` and the `isOpenApiGeneration` guard (the build runs it up to `app.Run()`; skip infrastructure in that mode)
   - No migration ships: the first entity needs `dotnet ef migrations add` (`hg-mdn-backend`, `references/data-efcore.md`), and the entity-graph test builder arrives with it (`references/entity-graph.md`)
+  - Zero tolerance: `TreatWarningsAsErrors` in `Directory.Build.props`; raising `AnalysisLevel`, banned APIs, and custom analyzers are per-project choices (`hg-mdn-backend`, `references/static-analysis.md`)
   - Verify: `dotnet build` reports 0 warnings and writes `src/app/src/api/<project>-api.json`; `dotnet test --solution <project>.slnx` passes (database tests need Docker)
 7. Set up the front-end in `src/app` (templates: `references/frontend-templates.md`)
   - Vite, Vue 3 (Composition API), Nuxt UI (<https://ui.nuxt.com/llms.txt>) through its Vite plugin, TypeScript 6.x only (`vue-tsc` does not support 7; `hg-mdn-frontend`, `references/project-structure.md`)
   - Pinia, VueUse, file-based routing (`vue-router` v5, `src/pages`); the unplugin auto-import and component plugins are wired through the Nuxt UI plugin's `autoImport` and `components` options
-  - `oxlint`, `oxfmt`, and the VS Code settings
+  - **Toolchain for speed and consistent formatting, from the first commit:** TypeScript 6.x (`~6.0`; `vue-tsc` does not support 7), `oxlint` for linting and `oxfmt` for formatting (the Rust-based Oxc tools, <https://oxc.rs/llms.txt>), with `.oxlintrc.json`, `.oxfmtrc.json`, the `lint`/`lint:fix`/`fmt`/`fmt:check` scripts, and VS Code formatting on save through `oxc.oxc-vscode`.  Do not add ESLint or Prettier: one linter and one formatter, fast enough to run on every save and in every check (a lint or format check of the template takes about a tenth of a second)
+  - Run `npm run fmt` once after creating the files, so the first commit is already formatted, then verify `npm run lint && npm run fmt:check`
   - Icons are bundled, never fetched at runtime: the template's `vite.config.ts` maps the lucide slots to hugeicons (`hg-mdn-frontend`, `references/nuxt-ui.md`)
   - Vitest with `happy-dom` and `@vue/test-utils`; infrastructure in `src/test/` (`setup.ts` fails any unmocked `fetch`, `mount.ts`, `AppHarness.vue`); `App.test.ts` smoke-tests the whole app, including "no icon fetched"
   - Secure by default in the router too (`router/guards.ts`, `stores/session-store.ts`, `pages/login.vue`; rules: `hg-mdn-frontend`, `references/routing.md`); the login page is a placeholder for the chosen sign-in flow
@@ -132,7 +138,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Confirm: with the stack up, `csharprepl connect list` shows `<PROJECT>.Runtime`; usage: `hg-mdn-backend`, `references/csharprepl.md`
 11. Set up CSharpier
   - `.config/dotnet-tools.json` mirrors the CSharpier version in `mise.toml` (for CI agents and the VS Code extension)
-  - `mise run format` and `mise run lint` cover C# and the front-end; CSharpier also formats `.csproj`, `.props`, and `.slnx`; VS Code formats on save (`.vscode` template)
+  - `mise run format` and `mise run lint` cover C# and the front-end; CSharpier also formats `.csproj`, `.props`, and `.slnx`; VS Code formats on save except Markdown (`.vscode` template)
   - `csharpier format src host` once before finishing; verify: `csharpier check src host` (CI runs it)
 12. Set up the Dockerfile (template: `references/containers-ci.md`)
   - `build/Dockerfile` builds the backend API image from the repo root, restore layered for caching; verify: `docker build -f build/Dockerfile -t <project> .`

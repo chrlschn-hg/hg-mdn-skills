@@ -351,7 +351,7 @@ Lints `.ts` and `.vue`.  `oxlint` prints nothing and exits 0 when clean; exits 1
 ```json
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["dist", "src/api/generated", "*.d.ts", "src/api/*.json"]
+  "ignorePatterns": ["dist", "src/api/generated", "*.d.ts", "src/api/*.json", "**/*.md"]
 }
 ```
 
