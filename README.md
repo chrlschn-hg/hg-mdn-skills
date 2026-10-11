@@ -20,3 +20,8 @@ Therefore, this set of skills is designed to help teams quickly onboard with pra
 - Promote modern usage of tooling to improve the developer experience (DX)
 - Promote fast developer inner loops by scaffolding several key technologies
 - Scaffold modern AI use cases with Microsoft Agent Framework, OpenTelemetry for observability, MCP for building server backends
+
+## Usage
+
+- Clone this repo as the foundation of your repo
+- Or download and copy out the skills files
