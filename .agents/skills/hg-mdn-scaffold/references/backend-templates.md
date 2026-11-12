@@ -40,7 +40,7 @@ src/backend/
 ```xml
 <Project>
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- XML doc comments feed the OpenAPI document (summaries, descriptions). -->
@@ -60,7 +60,7 @@ src/backend/
 
 ### `src/backend/Directory.Packages.props`
 
-Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
+Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  **The EF Core family is one major line, and it trails the SDK:** `Microsoft.EntityFrameworkCore.*`, `Npgsql.EntityFrameworkCore.PostgreSQL`, and `EFCore.NamingConventions` each require EF Core `< 11`, and the Npgsql provider had no stable 11.x on 2026-11-12, so these entries stay on 10.0.x and run on `net11.0` (ASP.NET Core and the rest of the set are 11.0.0).  When a stable Npgsql 11.x ships, move all three (and `dotnet-ef`) together, then `mise run check`.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
 
 ```xml
 <Project>
@@ -70,37 +70,37 @@ Central package management: versions live here only; csproj files use bare `<Pac
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="11.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.12">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="11.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Npgsql.OpenTelemetry" Version="10.0.3" />
-    <PackageVersion Include="OpenTelemetry" Version="1.19.1" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+    <PackageVersion Include="OpenTelemetry" Version="1.21.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
     <PackageVersion
       Include="OpenTelemetry.Instrumentation.EntityFrameworkCore"
-      Version="1.19.1-beta.1"
+      Version="1.21.0-beta.1"
     />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.14" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.21.0" />
     <PackageVersion Include="Scrutor" Version="7.0.0" />
     <PackageVersion Include="Serilog" Version="4.4.0" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
-    <PackageVersion Include="TUnit" Version="1.73.19" />
-    <PackageVersion Include="TUnit.Core" Version="1.73.19" />
+    <PackageVersion Include="TUnit" Version="1.84.0" />
+    <PackageVersion Include="TUnit.Core" Version="1.84.0" />
     <PackageVersion Include="Zeeq.Biome" Version="1.1.0" />
     <PackageVersion Include="Zeeq.Biome.EntityFrameworkCore" Version="1.1.0" />
   </ItemGroup>
@@ -322,9 +322,8 @@ public static class HttpSetup
                 // Anything under the prefix that no endpoint matched is an API 404, not a
                 // front-end route: without this the SPA fallback would answer `/api/typo` with
                 // index.html and a 200.
-                root.Map(
-                        "{**unmatched}",
-                        () => Results.NotFound(new ApiError("not_found", "No such API route."))
+                root.Map("{**unmatched}", () =>
+                        Results.NotFound(new ApiError("not_found", "No such API route."))
                     )
                     .AllowAnonymous(); // a typo is a 404 for everyone, not a 401
             }
@@ -1809,15 +1808,12 @@ public sealed class RouteGuardUnitTests
         );
 
         var nextCalled = false;
-        var result = await Filter.InvokeAsync(
-            new DefaultEndpointFilterInvocationContext(http),
-            _ =>
-            {
-                nextCalled = true;
+        var result = await Filter.InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
+        {
+            nextCalled = true;
 
-                return ValueTask.FromResult<object?>("next");
-            }
-        );
+            return ValueTask.FromResult<object?>("next");
+        });
 
         return (result, nextCalled);
     }
@@ -2681,10 +2677,9 @@ public sealed class RouteSecurityLintTests
                 .OfType<RouteEndpoint>()
                 .Select(endpoint =>
                 {
-                    var method =
-                        endpoint
-                            .Metadata.GetMetadata<HttpMethodMetadata>()
-                            ?.HttpMethods.FirstOrDefault()
+                    var method = endpoint
+                        .Metadata.GetMetadata<HttpMethodMetadata>()
+                        ?.HttpMethods.FirstOrDefault()
                         ?? "ANY";
 
                     return (

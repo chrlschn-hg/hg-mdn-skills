@@ -109,8 +109,7 @@ public static class DataSetup
         /// </summary>
         public IServiceCollection Add<PROJECT>Data(IConfiguration configuration)
         {
-            var connectionString =
-                configuration.GetConnectionString(ConnectionStringName)
+            var connectionString = configuration.GetConnectionString(ConnectionStringName)
                 ?? throw new InvalidOperationException(
                     $"Connection string '{ConnectionStringName}' is missing; run the app via Aspire (`mise run up`)."
                 );
@@ -160,10 +159,9 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<App
 
     public AppDbContext CreateDbContext(string[] args)
     {
-        var connectionString =
-            Environment.GetEnvironmentVariable(
-                $"ConnectionStrings__{DataSetup.ConnectionStringName}"
-            ) ?? FallbackConnectionString;
+        var connectionString = Environment.GetEnvironmentVariable(
+            $"ConnectionStrings__{DataSetup.ConnectionStringName}"
+        ) ?? FallbackConnectionString;
 
         var options = new DbContextOptionsBuilder<AppDbContext>();
         options.Configure<PROJECT>Db(connectionString);

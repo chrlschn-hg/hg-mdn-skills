@@ -31,13 +31,13 @@ Lives in `.config/`, not the root.  Tasks run from the repo root.  `check` is th
 # NOTE: this file lives in `.config/`, not the repo root; tasks run from the repo root.
 
 [tools]
-dotnet = "10.0.401"
+dotnet = "11.0.100"
 node = "26"
 postgres = "18" # provides `psql` (CLI only; the server runs in Aspire)
 "dotnet:Aspire.Cli" = "13.6"
-"dotnet:CSharpier" = "1.3.0"
+"dotnet:CSharpier" = "1.4.0"
 "dotnet:CsharpRepl" = "0.9.2"
-"dotnet:dotnet-ef" = "10.0.12"
+"dotnet:dotnet-ef" = "11.0.0"
 "github:cesarferreira/stax" = "0.115.0" # stacked PRs: `st` / `stax` (references/stax.md)
 
 [tasks.stax-skill]
@@ -100,7 +100,7 @@ Pins the SDK and selects Microsoft Testing Platform for `dotnet test` (required 
 ```json
 {
   "sdk": {
-    "version": "10.0.401",
+    "version": "11.0.100",
     "rollForward": "latestFeature"
   },
   "test": {
@@ -119,7 +119,7 @@ Mirrors the CSharpier pin so `dotnet tool restore` (CI agents, the VS Code CShar
   "isRoot": true,
   "tools": {
     "csharpier": {
-      "version": "1.3.0",
+      "version": "1.4.0",
       "commands": ["csharpier"],
       "rollForward": false
     }
@@ -211,7 +211,7 @@ Fill the title line and the context sentences from the user's answers; the rest 
 
 (Two or three sentences: who it is for, what problem it solves, key constraints.)
 
-- `src/backend`: .NET 10, C# 14; use modern language features (primary constructors, collection expressions, pattern matching, switch expressions, extension members, etc.)
+- `src/backend`: .NET 11, C# 15; use modern language features (primary constructors, collection expressions, pattern matching, switch expressions, extension members, unions and closed hierarchies for expected outcomes, etc.)
     - `packages/`: library projects; one per concern or feature slice (`<PROJECT>.<Feature>` with `<PROJECT>.<Feature>.Tests`)
     - `runtime/`: the web API host; keep it lean, business logic lives in feature packages
 - `src/app`: Vue 3, Nuxt UI, Vite, TypeScript, Tailwind CSS; package manager is `npm`

@@ -1,13 +1,13 @@
 ---
 name: hg-mdn-scaffold
-description: Scaffold a .NET 10 + Vue/Nuxt UI repository ready for development: Mise tasks, Aspire host, feature-slice backend, Kubb-generated API client, tests with real databases, CI, and agent skills.  Use in an empty repository or when a foundation (Mise, Aspire, `src/backend`, `src/app`, CI) is missing.
+description: Scaffold a .NET 11 + Vue/Nuxt UI repository ready for development: Mise tasks, Aspire host, feature-slice backend, Kubb-generated API client, tests with real databases, CI, and agent skills.  Use in an empty repository or when a foundation (Mise, Aspire, `src/backend`, `src/app`, CI) is missing.
 ---
 
 # Modern .NET Scaffold
 
 ## Overview
 
-Scaffolds a repository for modern .NET development: Aspire host, feature-slice backend (.NET 10, C# 14), Vue + Nuxt UI front-end, generated API client, tests with real databases, CI, and agent skills for day-to-day work.  Use modern features whenever available (language, tooling, runtime, scaffolding such as `.slnx`).
+Scaffolds a repository for modern .NET development: Aspire host, feature-slice backend (.NET 11, C# 15), Vue + Nuxt UI front-end, generated API client, tests with real databases, CI, and agent skills for day-to-day work.  Use modern features whenever available (language, tooling, runtime, scaffolding such as `.slnx`).
 
 - Mise (<https://mise.jdx.dev/llms.txt>): runtime dependencies (SDKs, CLIs, tools) and tasks (`mise run <task>`)
 - Aspire (<https://aspire.dev/llms.txt>): local orchestration of containers and system dependencies (Postgres, SQL Server, Redis, emulators, runtime commands, package installs)
@@ -57,7 +57,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
    |---|---|---|
    | What is being built (one line plus two sentences of context)? Project name (derive `<PROJECT>`, `<project>`; confirm) | none | 3 and every template |
    | Agents: Claude Code (always wired), Codex, GitHub Copilot | Claude Code | 3 |
-   | .NET SDK | latest LTS (10.x) | 2, 6 |
+   | .NET SDK | latest GA (11.x, a 24-month STS release); 10.x is the current LTS | 2, 6 |
    | Front-end package manager (`npm`, `pnpm`, `yarn`) | `npm` | 2, 7, 9 |
    | Database (Postgres, SQL Server, Redis, `none`) | Postgres | 2, 6, 9 |
    | Cloud CLIs (`aws-cli`, `gcloud`, `azure-cli`), other tools (`python`, `go`) | none | 2 |
@@ -75,7 +75,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Recommend the VS Code extension `hverlin.mise-vscode`
   - `mise.toml` goes in `.config/mise.toml`, not the root
 2. Set up Mise tooling (template: `references/root-files.md`, "Mise and .NET")
-  - SDK: latest LTS (10.x) unless the user chose otherwise; pin it in `.config/mise.toml` and `global.json` (which also selects Microsoft Testing Platform).  Another SDK also changes every `net10.0` and `10.0` (`Directory.Build.props`, `host/host.csproj`, Dockerfile and devcontainer images, the `10.0.x` package versions, `dotnet-ef`, `AGENTS.md`)
+  - SDK: latest GA (11.x) unless the user chose otherwise (10.x is the LTS); pin it in `.config/mise.toml` and `global.json` (which also selects Microsoft Testing Platform).  Another SDK also changes every `net11.0` and `11.0` (`Directory.Build.props`, `host/host.csproj`, Dockerfile and devcontainer images, the `11.0.x` package versions, `AGENTS.md`) and the language level named in the docs (C# 15 adds unions and closed hierarchies: `hg-mdn-backend`, `references/unions-and-closed-hierarchies.md`).  CSharpier must be 1.4.0 or newer (1.3.x cannot parse C# 15's labeled `break` and `continue`)
   - Package manager: `npm` ships with `node`; `pnpm` and `yarn` get their own entries (variants: `references/frontend-templates.md`)
   - Database CLI: `postgres` (`psql`), `github:microsoft/go-sqlcmd` (`sqlcmd`), `redis` (`redis-cli`); check `mise registry`; swapping providers: `references/data-templates.md`
   - .NET tools: always <mise_config_default_dotnet_tools />
