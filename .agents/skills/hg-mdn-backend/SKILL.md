@@ -1,6 +1,6 @@
 ---
 name: hg-mdn-backend
-description: Build and debug the modern .NET (C# 14) backend: feature slices, minimal API endpoints and handlers, EF Core data access, configuration, OpenTelemetry/Serilog, TUnit tests on Microsoft Testing Platform (not xUnit), the OpenAPI to Kubb contract, and debugging the running app with the Aspire CLI and CSharpRepl.  Use for any work in `src/backend`.
+description: Build and debug the modern .NET (C# 14) backend: feature slices, minimal API endpoints and handlers, EF Core data access, configuration, OpenTelemetry/Serilog, TUnit tests on Microsoft Testing Platform (not xUnit) with Zeeq Biome test data, the OpenAPI to Kubb contract, and debugging the running app with the Aspire CLI and CSharpRepl.  Use for any work in `src/backend`.
 ---
 
 # Building the Modern .NET Backend
@@ -38,7 +38,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - Every endpoint sets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` fails `mise run test` and CI without them (`references/openapi-contract.md`)
 - A model change needs a migration (`references/data-efcore.md`).  **Multi-tenant?  The tenant id is part of every primary key, composite foreign key, and index; stores take `tenantId`** (decide before the first entity).  UUID v7 is the internal key; where people see ids add a unique short **NanoID** (safe lowercase alphanumeric alphabet); where users reorder rows add a **LexoRank** column (`references/ids-and-ordering.md`)  After a contract change: `dotnet build`, then `mise run generate`
 - Tests are TUnit: `[Test]`, `await Assert.That(...)` (always awaited), `[Arguments]`.  No `[Fact]`, `[Theory]`, `Assert.Equal`, or xUnit packages
-- Test data comes from the **entity graph builder**: customize the real entity with `Action<T>`, never `*Prototype` classes (`references/entity-graph.md`).  Handler tests use hand-written fakes; store tests use the real database, never a mocked `DbContext`
+- Test data comes from **Zeeq Biome** (`TestBiome.Start(...).AddNotebook(out var notebook)`): customize the real entity with `Action<T>`, never `*Prototype` classes; an `init`-only entity gets an input blueprint, not setters (`references/zeeq-biome.md`).  Handler tests use hand-written fakes; store tests use the real database, never a mocked `DbContext`
 - Logging: the per-class static logger with `Log.Here()`; spans: `using var activity = <PROJECT>Telemetry.Trace(...)`
 - **Zero warnings: `TreatWarningsAsErrors`.**  A build error with a rule id is the instruction: fix the cause, never `#pragma`-disable it to finish a task; a rule that keeps coming up becomes a banned symbol or a custom Roslyn analyzer (`references/static-analysis.md`).  Mechanical, repeated code is generated: built-in generators first (`[GeneratedRegex]`, `[LoggerMessage]`, `JsonSerializerContext`, Mapperly), then an incremental generator (`references/source-generators.md`)
 - Style is enforced by `.editorconfig` and the build (braces, exhaustive enum switches: name every member, end with `_ => throw new UnreachableException(...)`).  `csharpier format <files>` on everything you touch; `dotnet build` stays warning-free
@@ -64,7 +64,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | adding logs, spans, or metrics | `references/telemetry-logging.md` |
 | writing or running tests (test types, fakes, run commands) | `references/testing.md` |
 | using TUnit features (data sources, hooks, assertions) or translating xUnit habits | `references/tunit.md` |
-| creating test data and seeds | `references/entity-graph.md` |
+| creating test data: Zeeq Biome seeds, blueprints, chains, sequences, time, tenancy | `references/zeeq-biome.md` |
 | diagnosing the running app (logs, traces, rebuild, database reset) | `references/debugging-aspire.md` |
 | inspecting or patching live code | `references/csharprepl.md` |
 | writing C# (switch expressions, pattern matching, types, comments); side-effect-free core: pure decisions, effects passed as delegates | `references/code-style.md` |
@@ -95,7 +95,7 @@ aspire logs app-backend -n 50 --search "error"
 ## Working Loop
 
 1. Read the relevant reference(s); open the nearest existing slice.
-2. Write or change the handler test first (`<Slice>.Tests`, fake store, data from the entity graph) and watch it fail.
+2. Write or change the handler test first (`<Slice>.Tests`, fake store, data from a Zeeq Biome chain) and watch it fail.
 3. Implement: contracts, handler, endpoint (with `WithName`, `WithSummary`, `WithDescription`), mapping; then the store and migration if data changes.
 4. `csharpier format`, `dotnet build`, run the slice's tests (and `<PROJECT>.Data.Tests` if a store changed, `<PROJECT>.Api.Tests` for the descriptions and route security, `<PROJECT>.Runtime.Tests` for the routes lint).
 5. If the contract changed: confirm the diff in `src/app/src/api/<project>-api.json`, then `mise run generate`.

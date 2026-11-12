@@ -8,7 +8,7 @@ A feature slice is one project that owns a capability end to end: domain types, 
 Runtime ──► slices, Api, Telemetry, Config, Data   (wires everything; no business logic)
 Data    ──► slices                                 (implements the stores that slices define)
 slices  ──► Api, Telemetry                         (never Data, never Runtime, never another slice's internals)
-tests   ──► the project under test (+ <PROJECT>.Testing: entity graph, fixtures)
+tests   ──► the project under test (+ <PROJECT>.Testing: Zeeq Biome setup, fixtures)
 ```
 
 - Slices depend on **interfaces** (`I<Thing>Store`), so they never reference EF Core and handler tests use a fake.
@@ -30,8 +30,8 @@ src/backend/packages/<PROJECT>.Notes/
   NoteMapping.cs                       domain <-> contract mapping (extension members)
 src/backend/packages/<PROJECT>.Notes.Tests/
   FakeNoteStore.cs, CreateNoteHandlerTests.cs, ListNotesHandlerTests.cs
-src/backend/packages/<PROJECT>.Testing/EntityGraph/
-  EntityGraphNotesExtensions.cs        the slice's test-data helpers (see entity-graph.md)
+src/backend/packages/<PROJECT>.Testing/Biome/
+  NotesBlueprints.cs                   the slice's test-data blueprints (see zeeq-biome.md)
 ```
 
 Conventions:
@@ -50,7 +50,7 @@ Test first: the first test of a slice is a handler test.
 1. Create `<PROJECT>.<Slice>/<PROJECT>.<Slice>.csproj` (template below) and the `.Tests` project; add both to `<project>.slnx`.
 2. Add a `ProjectReference` to the slice in `<PROJECT>.Runtime.csproj`.  Nothing else is needed for routing: `Add<PROJECT>Endpoints` scans for `IEndpoint` and `IEndpointHandler`, and security comes with the group the slice is mapped onto (`route-security.md`).
 3. Write the domain type and `I<Thing>Store`.
-4. Add `EntityGraph<Slice>Extensions.cs` to `<PROJECT>.Testing` (it needs a `ProjectReference` to the slice; `entity-graph.md`), then write the failing handler test with a fake store (`testing.md`).
+4. Add `<Slice>Blueprints.cs` to `<PROJECT>.Testing/Biome/` (it needs a `ProjectReference` to the slice; `zeeq-biome.md`), then write the failing handler test with a fake store (`testing.md`).
 5. Write contracts, handler, mapping, and the endpoint with `WithName`, `WithSummary`, `WithDescription` (`endpoints.md`, `openapi-contract.md`) until the test passes.
 6. In `<PROJECT>.Data`: add the `IEntityTypeConfiguration<T>`, the store implementation, one `AddScoped<I<Thing>Store, <Thing>Store>()` line in `DataSetup`, and a `ProjectReference` to the slice.
 7. Create the migration (`data-efcore.md`), then write the store integration tests against the database fixture.
@@ -84,7 +84,7 @@ namespace <PROJECT>.Notes;
 /// <summary>
 /// A short note, optionally filed in a <see cref="Notebook"/>.  Domain type: no framework or
 /// persistence dependencies.  Properties have public setters so tests can customize generated
-/// instances (see the entity-graph builder).
+/// instances (see Zeeq Biome; an init-only model uses an input blueprint).
 /// </summary>
 public sealed class Note
 {

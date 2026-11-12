@@ -220,7 +220,7 @@ internal sealed class TenancyProbeContext(DbContextOptions<TenancyProbeContext> 
 | `Lookups_NeedTheTenant_AndNeverCrossIt` | `FindAsync("t2", "p1")` and a tenant-filtered query return nothing for another tenant's rows |
 | `Model_EveryTenantScopedEntity_HasTheTenantIdInItsKey` | the model lint: an `ITenantScoped` entity whose key omits `TenantId` fails (checked with a deliberately broken entity) |
 
-Test data for a tenant-scoped model: give the entity-graph seed a tenant (`entity-graph.md`), so a bare `AddThings(3)` is already in one tenant.
+Test data for a tenant-scoped model: the tenant is part of the Zeeq Biome **seed**, and every blueprint stamps it (`ctx.Seed.Tenant.Id`), so a bare `AddUsers(out var users, 3)` is already in one tenant, the tenant row is saved first, and `.Under(seed.Tenant)` can anchor on it (`zeeq-biome.md`, "Seeds, tenancy, and defaults").
 
 ## Migrations
 

@@ -186,6 +186,8 @@ See the `hg-mdn-backend` skill: `references/data-efcore.md`.
 
 ### `src/backend/packages/<PROJECT>.Testing/<PROJECT>.Testing.csproj`
 
+The Zeeq Biome packages and the references to the slices it builds are added with the first entity (the backend skill, `references/zeeq-biome.md`).
+
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
@@ -352,7 +354,7 @@ public static class DateTimeOffsetExtensions
 
 ### `src/backend/packages/<PROJECT>.Testing.Tests/DateTimeOffsetExtensionsTests.cs`
 
-Test the test helpers.  The entity-graph builder's tests live here too (see the backend skill, `references/entity-graph.md`).
+Test the test helpers.  The Zeeq Biome setup needs no tests here: its blueprints are checked against the database in `<PROJECT>.Data.Tests` (the backend skill, `references/zeeq-biome.md`).
 
 ```csharp
 namespace <PROJECT>.Testing.Tests;
