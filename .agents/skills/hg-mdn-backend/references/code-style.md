@@ -1,6 +1,6 @@
 # Modern C# Style
 
-.NET 10 / C# 14 (LTS).  Prefer the newest language feature that makes the code shorter and clearer; do not write 2018 C#.  Formatting is CSharpier (default settings, 100 columns): run `csharpier format <files>` on every file you touch, and do not argue with it.
+.NET 11 / C# 15 (the default language version for `net11.0`; .NET 10 is the LTS with C# 14, so on 10 skip the C# 15 items).  Prefer the newest language feature that makes the code shorter and clearer; do not write 2018 C#.  Formatting is CSharpier (default settings, 100 columns): run `csharpier format <files>` on every file you touch, and do not argue with it.
 
 ## Language features to use
 
@@ -53,10 +53,7 @@ public static class StyleProbe
         var head = numbers is [var first, ..] ? first : -1;
 
         // 6. `with` on records, collection expressions, raw string literal.
-        var request = new CreateNoteRequest("t", null) with
-        {
-            Body = "b",
-        };
+        var request = new CreateNoteRequest("t", null) with { Body = "b" };
         string[] merged = [.. numbers.Select(n => n.ToString()), request.Title];
         var text = """
             line one
@@ -69,8 +66,56 @@ public static class StyleProbe
 }
 ```
 
+C# 15 adds three small ones, and two large ones (`unions-and-closed-hierarchies.md`):
+
+`src/backend/packages/<PROJECT>.Notes/CSharp15Probe.cs`
+
+```csharp
+namespace <PROJECT>.Notes;
+
+public static class CSharp15Probe
+{
+    extension(IReadOnlyList<Note> notes)
+    {
+        // 1. Extension indexer: `notes[id]` instead of a `FindById(notes, id)` helper.
+        public Note? this[Guid id] => notes.FirstOrDefault(note => note.Id == id);
+    }
+
+    // 2. Collection expression arguments: `with(...)` picks the constructor (here the capacity).
+    public static List<string> Titles(IReadOnlyList<Note> notes) =>
+        [with(capacity: notes.Count), .. notes.Select(note => note.Title)];
+
+    // 3. Labeled `break` / `continue`: leave an outer loop without a flag variable.
+    public static Note? FirstWithoutBody(IEnumerable<IReadOnlyList<Note>> notebooks)
+    {
+        Note? found = null;
+
+        outer:
+        foreach (var notes in notebooks)
+        {
+            foreach (var note in notes)
+            {
+                if (note.Title == "")
+                {
+                    continue outer; // a malformed notebook: skip the rest of it
+                }
+
+                if (note.Body == "")
+                {
+                    found = note;
+                    break outer;
+                }
+            }
+        }
+
+        return found;
+    }
+}
+```
+
 Also standard practice here:
 
+- **Unions and closed hierarchies** (C# 15) for expected outcomes and fixed sets of variants, instead of exceptions and `null`: `unions-and-closed-hierarchies.md`.
 - **Primary constructors** for DI: `internal sealed class NoteStore(AppDbContext db) : INoteStore`.  Use the parameter directly; promote it to a field only when it must be mutated.
 - **Records** for contracts and value-like types; `sealed record` by default.  Non-destructive edits with `with`.
 - **Collection expressions** everywhere: `[]`, `[a, b]`, `[.. items.Select(...)]`.  Not `new List<T>()`, `Array.Empty<T>()`, `.ToList()` for a copy.
@@ -106,7 +151,7 @@ public sealed record Address(string Country, string? Region);
 
 public sealed record Customer(string Name, Address Address, int MonthsSubscribed, bool Blocked);
 
-public abstract record Event;
+public closed record class Event;
 
 public sealed record ItemAdded(int Amount) : Event;
 
@@ -165,7 +210,8 @@ public static class PatternMatchingProbe
             (false, _) => "standard",
         };
 
-    // 5. Type patterns over a hierarchy; `null` and unknown types fail loudly.
+    // 5. Type patterns over a `closed` hierarchy: no `_`, so a new subclass is a compile error
+    //    (CS8509).  `null` is a caller bug and fails loudly.
     public static string Summarize(Event? e) =>
         e switch
         {
@@ -173,7 +219,6 @@ public static class PatternMatchingProbe
             ItemRemoved removed => $"removed {removed.Amount}",
             ItemDeactivated => "deactivated",
             null => throw new ArgumentNullException(nameof(e)),
-            _ => throw new UnreachableException($"Unhandled event: {e.GetType().Name}"),
         };
 
     // 6. List patterns: shape and contents of a sequence.  A reference-type input is nullable to
@@ -199,6 +244,7 @@ public static class PatternMatchingProbe
 Rules:
 
 - **Name every enum member.**  Keep a final `_ => throw new UnreachableException(...)` for values outside the enum, never a catch-all that quietly covers known members.  `.editorconfig` makes IDE0072, IDE0010 (a `switch` statement with only a `default`), and CS8524 (unnamed enum value) warnings, and `EnforceCodeStyleInBuild` makes `dotnet build` report them, so **adding an enum member flags every switch that has to decide what to do with it**.
+- **A `closed` hierarchy or a union takes no `_` arm**: the compiler lists the case you forgot (CS8509).  `_` would silence it for every future case.
 - **Order arms from specific to general.**  An arm that an earlier arm already covers is a compile error (CS8510).
 - **Reference-type input can be `null`**: give it an arm (`null => throw ...`, or `null or [] => ...`).
 - **`when` only for what patterns cannot say** (comparing two properties, calling a method).  Relational, logical (`or`, `and`, `not`), property (including nested `{ Address.Country: "DE" }`), type, and list patterns cover the rest.
@@ -294,7 +340,7 @@ Decide in pure functions and push effects to the edge.  When logic needs an effe
 - Guard clauses and early returns; the happy path stays at the left margin.
 - Prefer immutable data and pure functions; keep side effects in handlers and stores.
 - Static state is for constants and loggers (`private static readonly Serilog.ILogger Log`); everything else is injected.
-- Exceptions are for unexpected failures; expected outcomes are `TypedResults` (`endpoints.md`).
+- **Expected outcomes are values, not exceptions**: a union in core and library code, `TypedResults` in handlers (`unions-and-closed-hierarchies.md`, `endpoints.md`).  Exceptions are for bugs and infrastructure failures; never `catch` to choose a branch.
 - No `#region`, no commented-out code, no `TODO` without a tracking reference.
 - **Always brace** `if`/`else`/`for`/`foreach`/`while` bodies, even one-liners (`using var` declarations are the exception).  `csharp_prefer_braces` and IDE0011 are warnings in `.editorconfig`.
 - Use `using Some.Namespace;` instead of writing full namespaces in code (aliases for the rare collision).

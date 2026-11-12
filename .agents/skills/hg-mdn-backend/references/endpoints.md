@@ -123,9 +123,10 @@ Rules:
 - **Return `Results<A, B, ...>` of `TypedResults`.**  The union documents every status code in OpenAPI and gives the generated client typed errors.  A handler with one outcome returns `Ok<T>` (`ListNotesHandler`).
 - **Validate explicitly with guard clauses**, in a fixed order, each returning a distinct `ApiError` code (`snake_case`).  The front-end switches on `Code`; the message is for humans.
 - **Expected failures are results, not exceptions.**  Validation -> `BadRequest<ApiError>`; duplicate or limit -> `Conflict<ApiError>`; a row that is missing or that the caller may not see -> `NotFound`, so existence is not leaked.  Which status means what: `route-security.md`, "Status codes at a glance".
+- **Rules shared with a job, an import, or another slice live in core code that returns a union**, and the handler maps each outcome with an exhaustive `switch` (`unions-and-closed-hierarchies.md`, "Outcomes instead of exceptions").
 - **Unexpected failures throw** and are handled once, at the boundary, by `HttpExceptionHandler` (see "Error shape").  Handlers do not catch to log.
 - Create the span after validation succeeds, with cheap, non-sensitive tags; log with `Log.Here()` (`telemetry-logging.md`).
-- Keep handlers short.  A handler that needs branching business rules gets a domain service in the slice.
+- Keep handlers short.  A handler that needs branching business rules gets a domain service in the slice, which returns a union of outcomes.
 
 ## Contracts
 

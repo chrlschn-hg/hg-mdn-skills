@@ -1,13 +1,13 @@
 ---
 name: hg-mdn-backend
-description: Build and debug the modern .NET (C# 14) backend: feature slices, minimal API endpoints and handlers, EF Core data access, configuration, OpenTelemetry/Serilog, TUnit tests on Microsoft Testing Platform (not xUnit) with Zeeq Biome test data, the OpenAPI to Kubb contract, and debugging the running app with the Aspire CLI and CSharpRepl.  Use for any work in `src/backend`.
+description: Build and debug the modern .NET (C# 15) backend: feature slices, minimal API endpoints and handlers, EF Core data access, configuration, OpenTelemetry/Serilog, TUnit tests on Microsoft Testing Platform (not xUnit) with Zeeq Biome test data, the OpenAPI to Kubb contract, and debugging the running app with the Aspire CLI and CSharpRepl.  Use for any work in `src/backend`.
 ---
 
 # Building the Modern .NET Backend
 
 ## Overview
 
-The backend is a .NET 10 (C# 14) web API organized as **feature slices**: one project per capability holding its domain types, storage interface, endpoints, and handlers.  A lean runtime project wires the slices together; a data project implements their storage; an Aspire host runs it all locally.
+The backend is a .NET 11 (C# 15) web API organized as **feature slices**: one project per capability holding its domain types, storage interface, endpoints, and handlers.  A lean runtime project wires the slices together; a data project implements their storage; an Aspire host runs it all locally.
 
 - Minimal APIs; one `IEndpoint` per slice, one `IEndpointHandler` per operation, `TypedResults` for every response
 - EF Core (Postgres by default), snake_case, store interfaces owned by the slices
@@ -35,13 +35,14 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - **One origin:** the API is mapped under `/api` and the runtime serves the built front-end (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`): no CORS, one container image (`references/spa-hosting.md`).  The build stamps the version and commit the app reports (`references/build-info.md`)
 - Authentication is a project choice behind one seam (`Add<PROJECT>Authentication`): Development signs in a configured user; elsewhere secured routes answer 401 until a real scheme replaces the placeholder
 - Handlers return `Results<...>` of `TypedResults`; expected failures are `ApiError` results with a distinct `snake_case` code; validate with explicit guard clauses (DataAnnotations on contracts are OpenAPI metadata, not enforced)
+- **Expected outcomes are values, not exceptions.**  Core and library code returns a **union** (C# 15) that names every outcome; a fixed set of variants with shared data (states, events) is a **`closed` hierarchy**.  The handler maps the outcome to `TypedResults` with an exhaustive `switch`: no `_` arm, so a new case breaks the build.  Throw only for bugs and infrastructure failures; never `catch` to choose a branch; translate a third-party exception into a union case once, in the adapter that owns it (`references/unions-and-closed-hierarchies.md`)
 - Every endpoint sets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` fails `mise run test` and CI without them (`references/openapi-contract.md`)
 - A model change needs a migration (`references/data-efcore.md`).  **Multi-tenant?  The tenant id is part of every primary key, composite foreign key, and index; stores take `tenantId`** (decide before the first entity).  UUID v7 is the internal key; where people see ids add a unique short **NanoID** (safe lowercase alphanumeric alphabet); where users reorder rows add a **LexoRank** column (`references/ids-and-ordering.md`)  After a contract change: `dotnet build`, then `mise run generate`
 - Tests are TUnit: `[Test]`, `await Assert.That(...)` (always awaited), `[Arguments]`.  No `[Fact]`, `[Theory]`, `Assert.Equal`, or xUnit packages
 - Test data comes from **Zeeq Biome** (`TestBiome.Start(...).AddNotebook(out var notebook)`): customize the real entity with `Action<T>`, never `*Prototype` classes; an `init`-only entity gets an input blueprint, not setters (`references/zeeq-biome.md`).  Handler tests use hand-written fakes; store tests use the real database, never a mocked `DbContext`
 - Logging: the per-class static logger with `Log.Here()`; spans: `using var activity = <PROJECT>Telemetry.Trace(...)`
 - **Zero warnings: `TreatWarningsAsErrors`.**  A build error with a rule id is the instruction: fix the cause, never `#pragma`-disable it to finish a task; a rule that keeps coming up becomes a banned symbol or a custom Roslyn analyzer (`references/static-analysis.md`).  Mechanical, repeated code is generated: built-in generators first (`[GeneratedRegex]`, `[LoggerMessage]`, `JsonSerializerContext`, Mapperly), then an incremental generator (`references/source-generators.md`)
-- Style is enforced by `.editorconfig` and the build (braces, exhaustive enum switches: name every member, end with `_ => throw new UnreachableException(...)`).  `csharpier format <files>` on everything you touch; `dotnet build` stays warning-free
+- Style is enforced by `.editorconfig` and the build (braces; enum switches name every member and end with `_ => throw new UnreachableException(...)`; union and closed switches take a `null =>` arm and no `_`).  `csharpier format <files>` on everything you touch; `dotnet build` stays warning-free
 - Prefer switch expressions and pattern matching, records for contracts, extension blocks for your own types; no `Task.Run` in request code
 - Comments say *why*: XML-doc every public type and contract parameter; `<remarks>` for the flow, `// NOTE:` for traps
 - Prefer the running app over guessing: read logs and traces with the Aspire CLI, or evaluate code in the process with CSharpRepl
@@ -68,6 +69,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | diagnosing the running app (logs, traces, rebuild, database reset) | `references/debugging-aspire.md` |
 | inspecting or patching live code | `references/csharprepl.md` |
 | writing C# (switch expressions, pattern matching, types, comments); side-effect-free core: pure decisions, effects passed as delegates | `references/code-style.md` |
+| returning outcomes instead of throwing; modeling states, events, and fixed variants: C# 15 unions and `closed` hierarchies | `references/unions-and-closed-hierarchies.md` |
 | parallel or background work, producers and consumers, locks (default: plain `async`/`await`) | `references/concurrency.md` |
 | zero-warning builds, `AnalysisLevel`, banned APIs, writing and testing a custom Roslyn analyzer | `references/static-analysis.md` |
 | repetitive code: built-in source generators, writing and testing an incremental generator | `references/source-generators.md` |
