@@ -8,9 +8,9 @@ Most tests are **fast, in-process, and call code directly**: no host-level tests
 
 | Test type | Project | Subject | Data |
 |---|---|---|---|
-| **Handler tests** (the bulk) | `<PROJECT>.<Slice>.Tests` | `HandleAsync`: guards, result selection, mapping | entity graph in memory + a hand-written fake store |
-| **Store integration tests** | `<PROJECT>.Data.Tests` | the real store on real Postgres: queries, ordering, constraints, round-trips | entity graph persisted through the test's `DbContext` |
-| **Test-infrastructure tests** | `<PROJECT>.Testing.Tests` | the entity-graph builder, fixtures, helpers | the builder itself |
+| **Handler tests** (the bulk) | `<PROJECT>.<Slice>.Tests` | `HandleAsync`: guards, result selection, mapping | a Zeeq Biome chain in memory + a hand-written fake store |
+| **Store integration tests** | `<PROJECT>.Data.Tests` | the real store on real Postgres: queries, ordering, constraints, round-trips | a Zeeq Biome chain saved through the test's `DbContext` |
+| **Test-infrastructure tests** | `<PROJECT>.Testing.Tests`, and `NotesBlueprintsTests` in `<PROJECT>.Data.Tests` | fixtures and helpers; that every blueprint's defaults save | the helpers themselves; the blueprints through the database |
 | **Contract lint** | `<PROJECT>.Api.Tests` | the committed OpenAPI document: every operation named, summarized, described | the JSON file the build writes |
 | **Route-security tests** | `<PROJECT>.Api.Tests` | route groups and guards through an in-memory pipeline: 401, 403, hidden 404, filter order | probe endpoints, header-driven test scheme |
 | **Route-security lint** | `<PROJECT>.Runtime.Tests` | every real route is secured or listed as anonymous | the real endpoint set, never requested |
@@ -45,7 +45,7 @@ A TUnit test project is a self-executing console app (`OutputType` `Exe`) that r
 ```
 
 - `global.json` selects MTP for `dotnet test`: `"test": { "runner": "Microsoft.Testing.Platform" }`.
-- Shared fixtures and the entity-graph builder go in `<PROJECT>.Testing`, which references `TUnit.Core` (not `TUnit`) and the slices it seeds.
+- Shared fixtures and the Zeeq Biome setup (seed, `TestBiome`, blueprints) go in `<PROJECT>.Testing`, which references `TUnit.Core` (not `TUnit`), the Biome packages, and the slices it builds.
 - Tests live next to what they test: `<PROJECT>.<Slice>.Tests` for slices, `<PROJECT>.Data.Tests` for stores.
 
 ## Run
@@ -87,7 +87,7 @@ MTP exit codes: `0` success, `2` test failure, `5` zero tests ran (<https://aka.
 
 ## Test data
 
-Build entities with the **entity graph builder**, not hand-written `new Note { ... }` (`entity-graph.md`: rules, when not to use it, the code).
+Build entities with **Zeeq Biome** (`TestBiome.Start(...).AddNotebook(out var notebook).AddNotes(out var notes, 3)`), not hand-written `new Note { ... }`.  Rules, setup, when not to use it, and the code: `zeeq-biome.md`.
 
 ## Handler tests: no host, no database
 
@@ -108,13 +108,14 @@ Call `HandleAsync` directly with a fake store.  Fast, deterministic, and they co
         await Assert.That(store.Notes).IsEmpty();
 ```
 
-When the handler needs existing rows, load the fake from a graph built in memory:
+When the handler needs existing rows, build them with Biome (no store: the entities exist as each Add returns) and load the fake from what the chain returned:
 
 `src/backend/packages/<PROJECT>.Notes.Tests/CreateNoteHandlerTests.cs (excerpt)`
 
 ```csharp
-        var seed = await EntityGraph.AddGeneratedSeed().BuildAsync();
-        var store = new FakeNoteStore().AddSeed(seed);
+        // A notebook exists, just not the one the request names.
+        TestBiome.Start(out _).AddNotebook(out var notebook);
+        var store = new FakeNoteStore().AddNotebooks(notebook);
         var handler = new CreateNoteHandler(store);
 
         var result = await handler.HandleAsync(
@@ -134,7 +135,7 @@ Cast `result.Result` to the expected `TypedResults` type to assert the status (`
 ## Fakes and doubles
 
 - **Hand-write fakes for interfaces you own** (`INoteStore`).  A fake is a few `List<T>` properties plus the methods the handlers use; it reads better and fails more clearly than a mocking setup.
-- **Fluent seeding:** `AddSeed(seed)`, `AddNotes(...)`, ... return `this`, so setup reads `new FakeNoteStore().AddSeed(seed).AddNotes(notes)`.
+- **Fluent seeding:** `AddNotebooks(...)`, `AddNotes(...)` return `this`, so setup reads `new FakeNoteStore().AddNotebooks(notebook).AddNotes(notes)`, from the `out` variables of a Biome chain.
 - **Say what it does not cover.**  Put a `<remarks>` on every fake: it models only the surface the handlers need; the store integration tests cover the real behavior.
 - **Expose knobs for failure and timing** when tests need them: a public `Exception? ThrowOnCall`, a recorded `List<string> Requests`, a `Func<Task>? Gate` to hold calls open.  Doubles for external services (an LLM client, an email sender) belong in `<PROJECT>.Testing` so every test project shares them.
 - **A mocking library only for third-party interfaces** you do not control and where a fake would be noise (add NSubstitute when first needed).  Never to mock `DbContext`: use the database.
@@ -151,28 +152,20 @@ Cast `result.Result` to the expected `TypedResults` type to assert the status (`
 `src/backend/packages/<PROJECT>.Notes.Tests/FakeNoteStore.cs`
 
 ```csharp
-using <PROJECT>.Testing.EntityGraphs;
-
 namespace <PROJECT>.Notes.Tests;
 
 /// <inheritdoc cref="INoteStore" />
 /// <remarks>
 /// Minimal in-memory store for handler tests.  It models only the small persistence surface the
 /// handlers need to prove validation and result selection; the real queries and constraints are
-/// covered by `NoteStoreIntegrationTests` against Postgres.  Fill it from an entity graph.
+/// covered by `NoteStoreIntegrationTests` against Postgres.  Fill it from the entities a Biome
+/// chain returned.
 /// </remarks>
 internal sealed class FakeNoteStore : INoteStore
 {
     public List<Note> Notes { get; } = [];
 
     public List<Notebook> Notebooks { get; } = [];
-
-    /// <summary>Adds the seed's entities (fluent, for test setup).</summary>
-    public FakeNoteStore AddSeed(SeedContext seed)
-    {
-        Notebooks.AddRange(seed.GetSeedEntities().OfType<Notebook>());
-        return this;
-    }
 
     public FakeNoteStore AddNotebooks(params IEnumerable<Notebook> notebooks)
     {
@@ -229,8 +222,8 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
 `src/backend/packages/<PROJECT>.Data.Tests/NoteStoreIntegrationTests.cs (excerpt)`
 
 ```csharp
-        // The graph persists the seed notebook; the store call under test is the write.
-        var seed = await EntityGraph.AddGeneratedSeed(_context).BuildAsync();
+        // Biome saves the notebook; the store call under test is the write.
+        await TestBiome.Start(_context, out _).AddNotebook(out var notebook).BuildAsync();
         var store = new NoteStore(_context);
 
         var created = await store.CreateAsync(
@@ -238,7 +231,7 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
             {
                 Title = "Hello",
                 Body = "World",
-                NotebookId = seed.Notebook.Id,
+                NotebookId = notebook.Id,
             },
             CancellationToken.None
         );
@@ -249,7 +242,7 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
         await Assert.That(notes.Count).IsEqualTo(1);
         await Assert.That(notes[0].Id).IsEqualTo(created.Id);
         await Assert.That(notes[0].Title).IsEqualTo("Hello");
-        await Assert.That(notes[0].NotebookId).IsEqualTo(seed.Notebook.Id);
+        await Assert.That(notes[0].NotebookId).IsEqualTo(notebook.Id);
         await Assert
             .That(notes[0].CreatedAtUtc)
             .IsEqualTo(created.CreatedAtUtc.TruncateToPostgresPrecision());
@@ -258,14 +251,14 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
 - `[ClassDataSource<PgDatabaseFixture>(Shared = SharedType.PerTestSession)]` boots **one** Postgres container for the whole run, reused by every class that declares it (`PgDatabaseFixture` in `<PROJECT>.Testing`).
 - `PgTransactionalTestBase` opens a `RepeatableRead` transaction in `[Before(Test)]` and always rolls it back in `[After(Test)]`: nothing a test writes is committed, so tests need no cleanup and never collide.
 - Write against `_context`.  Anything that bypasses its transaction (a second connection, raw SQL on another context, un-awaited background work) escapes the rollback and can leak into later tests.
-- Use the **entity graph** for the rows the test needs; the store call under test is then the only thing that is not setup.
+- Use a **Zeeq Biome chain** for the rows the test needs; the store call under test is then the only thing that is not setup.  Pass `_context` to `TestBiome.Start` and call `BuildAsync()` once.
 - `_context.ChangeTracker.Clear()` between the write and the read, or the test reads the tracked instance and proves nothing.
 - The schema is built once per container with `EnsureCreatedAsync()` from the current model (no migrations): schema changes need a new container, not a new test.  Migrations are verified separately (`dotnet ef migrations has-pending-model-changes`).
 - A base class per area is fine when many classes share helpers on top of `PgTransactionalTestBase`.
 
 ## Timestamps through the database
 
-Postgres keeps `timestamptz` to the microsecond; .NET ticks are 100 ns.  A round-tripped timestamp compares equal on macOS (microsecond clock) but not on Linux CI.  Truncate the *expected* side with `TruncateToPostgresPrecision()` (`<PROJECT>.Testing`), as in the last assertion above.
+Postgres keeps `timestamptz` to the microsecond; .NET ticks are 100 ns.  A round-tripped timestamp compares equal on macOS (microsecond clock) but not on Linux CI.  Values Zeeq Biome builds (`ctx.Now`, `ctx.Ago(...)`) are already truncated to the microsecond, so they compare equal as built.  A timestamp from anywhere else (the store stamping `UtcNow`, as in the last assertion above) needs the *expected* side truncated with `TruncateToPostgresPrecision()` (`<PROJECT>.Testing`).
 
 ## Contract lint: descriptions are enforced
 

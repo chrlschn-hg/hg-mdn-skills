@@ -214,7 +214,7 @@ Defaults are camelCase.  Not in the template: configure `JsonStringEnumConverter
 ## Checklist for a new endpoint
 
 1. Contract records (with docs) and a guard clause for every constraint.
-2. **Handler test first**: each guard and the happy path, fake store, data from the entity graph (`testing.md`, `entity-graph.md`).
+2. **Handler test first**: each guard and the happy path, fake store, data from a Zeeq Biome chain (`testing.md`, `zeeq-biome.md`).
 3. Handler returning `Results<...>`; register nothing by hand.
 4. `MapGet/MapPost(...)` with `WithName`, `WithSummary`, and `WithDescription` in the slice's `IEndpoint`.  Security: nothing to add for "signed-in users only"; otherwise a role, a group guard, `AllowAnonymous` with its comment and a line in the lint test, or `IAdminEndpoint` (`route-security.md`).  Name the role in `WithDescription` when it is not the default (signed in).
 5. `dotnet build`, then read the operation in `src/app/src/api/<project>-api.json` or the Scalar UI: does the description tell a caller what they need to know?  Then `mise run generate`.

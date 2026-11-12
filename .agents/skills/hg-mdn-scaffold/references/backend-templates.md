@@ -60,7 +60,7 @@ src/backend/
 
 ### `src/backend/Directory.Packages.props`
 
-Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
+Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
 
 ```xml
 <Project>
@@ -101,6 +101,8 @@ Central package management: versions live here only; csproj files use bare `<Pac
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="TUnit" Version="1.73.19" />
     <PackageVersion Include="TUnit.Core" Version="1.73.19" />
+    <PackageVersion Include="Zeeq.Biome" Version="1.1.0" />
+    <PackageVersion Include="Zeeq.Biome.EntityFrameworkCore" Version="1.1.0" />
   </ItemGroup>
 </Project>
 ```

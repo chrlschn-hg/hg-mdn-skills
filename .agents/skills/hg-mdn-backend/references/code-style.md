@@ -280,7 +280,7 @@ public static class TypeChoicesProbe
 - **`class`** for EF entities and anything with identity and mutable state.  **`record`** (positional where it reads well) for DTOs, contracts, settings, `jsonb` payloads, and value-like data.  A **named tuple** for a private helper that returns several values.  An **anonymous type** only for a payload that never leaves the method.
 - **Named arguments** for `bool` and number literals (`true`, `30`) and for any call with more than three parameters: the call reads without opening the signature.
 - **Extension members** (`extension(T value) { ... }`, properties and static members included) for your own types and collections (`IReadOnlyList<Note>`), grouped by receiver in one `static class`; not static helper classes.  Extend a primitive (`string`, `int`) only when the member is globally applicable (`IsBlank`).
-- **Builders for complex construction**, combined with extension members for a fluent, composable call (the entity-graph builder in `entity-graph.md` is one).
+- **Builders for complex construction**, combined with extension members for a fluent, composable call (Zeeq Biome's fluent test-data chain, `zeeq-biome.md`, is one).
 
 ## Side-effect-free core
 
