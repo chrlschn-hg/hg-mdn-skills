@@ -69,7 +69,7 @@ A use fails the build: `error RS0030: The symbol 'DateTimeOffset.UtcNow' is bann
 
 When a rule is about the code's structure ("a type implementing `IEndpointHandler` must not take `HttpContext`"), write an analyzer.  It lives in its own project, ships with the solution, and runs in every build and in the IDE.
 
-**The project** (`src/backend/packages/<PROJECT>.Analyzers`): `netstandard2.0` is required (the compiler loads it), and the Roslyn version must not be newer than the SDK's compiler, so use the version that shipped with the SDK's major release (`5.0.0` for the .NET 10 SDK):
+**The project** (`src/backend/packages/<PROJECT>.Analyzers`): `netstandard2.0` is required (the compiler loads it), so it needs `LangVersion` `latest` (that target defaults to C# 7.3, which rejects the solution's `Nullable`).  The Roslyn package must not be newer than the SDK's compiler (`csc -version`: 5.12 in the .NET 11 SDK), so use the latest stable `Microsoft.CodeAnalysis.CSharp` that is not (5.9.0).  Versions are central (`Directory.Packages.props`), like every other package:
 
 `<PROJECT>.Analyzers/<PROJECT>.Analyzers.csproj`
 
@@ -77,13 +77,14 @@ When a rule is about the code's structure ("a type implementing `IEndpointHandle
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IncludeBuildOutput>false</IncludeBuildOutput>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
@@ -92,8 +93,9 @@ When a rule is about the code's structure ("a type implementing `IEndpointHandle
 </Project>
 ```
 
+- Add to `Directory.Packages.props`: `Microsoft.CodeAnalysis.CSharp` and `Microsoft.CodeAnalysis.Analyzers` at `5.9.0` (an inline `Version` on the `PackageReference` fails with `NU1008` under central package management).
 - `EnforceExtendedAnalyzerRules` plus `Microsoft.CodeAnalysis.Analyzers` check the analyzer itself (no file I/O, no banned APIs inside the compiler).
-- **Release tracking** (`RS2008`) requires every rule id to be listed in `AnalyzerReleases.Unshipped.md` (and moved to `Shipped.md` on release); both are `AdditionalFiles`:
+- **Release tracking** (`RS2008`) requires every rule id to be listed in `AnalyzerReleases.Unshipped.md` (and moved to `Shipped.md` on release); both are `AdditionalFiles`, and both must exist (create `AnalyzerReleases.Shipped.md` empty: a missing file fails with `CS2001`):
 
 `<PROJECT>.Analyzers/AnalyzerReleases.Unshipped.md`
 
@@ -173,7 +175,10 @@ public sealed class HandlerTakesHttpContextAnalyzer : DiagnosticAnalyzer
 
         if (
             method.DeclaredAccessibility != Accessibility.Public
-            || !method.ContainingType.AllInterfaces.Contains(handler, SymbolEqualityComparer.Default)
+            || !method.ContainingType.AllInterfaces.Contains(
+                handler,
+                SymbolEqualityComparer.Default
+            )
         )
         {
             return;
@@ -269,7 +274,7 @@ public sealed class HandlerTakesHttpContextAnalyzerTests
 }
 ```
 
-- Test project packages: `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing` **and** `Microsoft.CodeAnalysis.CSharp.Workspaces` at the analyzer's Roslyn version.  Without the second, the testing package restores Workspaces `1.0.1` (a .NET Framework package) and the build fails on `NU1701`.
+- Test project packages: `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing` (`1.1.4`) **and** `Microsoft.CodeAnalysis.CSharp.Workspaces` at the analyzer's Roslyn version (`5.9.0`).  Without the second, the testing package restores Workspaces `1.0.1` (a .NET Framework package) and the build fails on `NU1701`.  The testing package also brings a vulnerable `System.Security.Cryptography.Pkcs` (`NU1902`, `NU1903`, errors under `TreatWarningsAsErrors`): reference a patched version directly (`11.0.0`).
 - Stub the types the rule looks for (`Stubs`) instead of referencing ASP.NET Core in the test compilation.
 - Cover: the violation (with its location), the compliant case, and a near miss the rule must ignore.
 

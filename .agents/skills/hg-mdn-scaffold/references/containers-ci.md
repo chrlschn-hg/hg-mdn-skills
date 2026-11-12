@@ -35,7 +35,7 @@ Versions are a snapshot: replace each with the latest stable at scaffold time.
 // Mise (`.config/mise.toml`) installs the project's tools; the features below provide what Mise cannot (Docker for Aspire and Testcontainers).
 {
   "name": "<PROJECT> (.NET)",
-  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0-noble",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:11.0-resolute",
   "hostRequirements": {
     "cpus": 4,
     "memory": "16gb",
@@ -106,7 +106,7 @@ RUN npm run build
 #*----------------------------------------------------------------------------------
 # Stage 2: build and publish the backend
 #*----------------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /srcroot
 
 # Restore first, with only the files restore needs, so this layer is cached until a project
@@ -138,7 +138,7 @@ RUN dotnet publish ./src/backend/runtime/<PROJECT>.Runtime.csproj \
 #*----------------------------------------------------------------------------------
 # Stage 3: runtime
 #*----------------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 WORKDIR /app
 
 COPY --from=build /app/publish .

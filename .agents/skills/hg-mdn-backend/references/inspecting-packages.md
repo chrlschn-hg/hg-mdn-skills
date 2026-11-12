@@ -14,7 +14,7 @@ dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member Channel CreateBounded --package System.Threading.Channels
 
 # What changed between versions (breaking changes only)
-dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breaking
+dnx dotnet-inspect -y -- diff --package System.Text.Json@10.0.0..11.0.0 --breaking
 ```
 
 - `--package <Name>[@version]` for NuGet, `--project <path>` for a project's own references, `--library <dll>` for a built assembly.

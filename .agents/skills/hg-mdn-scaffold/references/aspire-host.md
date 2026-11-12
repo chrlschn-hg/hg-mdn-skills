@@ -27,10 +27,10 @@ Notes:
 ### `host/host.csproj`
 
 ```xml
-<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AspireUseCliBundle>true</AspireUseCliBundle>
@@ -42,8 +42,8 @@ Notes:
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.1" />
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
+    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.5" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
   </ItemGroup>
 </Project>
 ```
@@ -190,8 +190,7 @@ internal static class ProcessUtils
             UseShellExecute = false,
         };
 
-        using var process =
-            Process.Start(startInfo)
+        using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start csharprepl connect init.");
 
         var outputTask = process.StandardOutput.ReadToEndAsync();
