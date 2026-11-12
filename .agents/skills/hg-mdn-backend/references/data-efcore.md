@@ -119,7 +119,7 @@ Query habits:
 - Prefer Npgsql's LINQ translations (JSON, full-text search, arrays, ranges) to raw SQL; `FromSql` only when none exists.
 - Multi-tenant data: the tenant id is in every key and every store method takes it (see below).
 - Project to what the caller needs; do not return tracked entities across a layer you do not control.
-- Catch `DbUpdateException` only to translate a specific constraint (for example a unique violation, SQL state `23505`) into a domain exception; let the rest reach the exception handler.
+- Catch `DbUpdateException` only to translate a specific constraint (for example a unique violation, SQL state `23505`) into a **union case** the store returns (`NameTaken`); let the rest reach the exception handler (`unions-and-closed-hierarchies.md`, "Translate at the edge, once").
 - Time-partitioned tables, unlogged tables, and advisory locks suit special cases; propose them when the data warrants it and **confirm with the user first**, because they are hard to reverse.
 
 ## Multi-tenant data: the tenant id is part of the key
