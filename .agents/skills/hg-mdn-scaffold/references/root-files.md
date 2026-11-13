@@ -93,6 +93,15 @@ run = [
 ]
 ```
 
+After `mise install`:
+
+- Check with `dotnet --version` and `mise tasks`.  A `dotnet:<Package>` entry is a .NET tool installed from NuGet under the pinned SDK.  Run a tool as `csharpier check <dir>` or `mise exec -- <tool>`; `mise which <tool>` prints its path.  `mise exec -C <dir>` changes the working directory, so a relative path then checks nothing.
+- macOS: if `dotnet --version` dies with SIGTERM after the first install, re-sign the install ad hoc.  The install directory is a symlink, so `find` needs `-H` (without it, nothing matches).  Not every install needs this.
+
+```sh
+find -H "$(mise where dotnet)" -type f \( -name dotnet -o -name '*.dylib' \) -exec codesign --force --sign - {} \;
+```
+
 ### `global.json`
 
 Pins the SDK and selects Microsoft Testing Platform for `dotnet test` (required for TUnit).  Match the SDK version to `mise.toml`.
@@ -252,6 +261,12 @@ mise run check    # everything CI checks: builds, type check, lint, format check
 mise run test     # backend + front-end tests
 mise run format   # CSharpier + oxfmt
 mise run lint     # oxlint, oxfmt --check, csharpier --check
+```
+
+macOS: if `dotnet --version` dies with SIGTERM after the first `mise install`, re-sign the install ad hoc (`-H` because the install directory is a symlink):
+
+```sh
+find -H "$(mise where dotnet)" -type f \( -name dotnet -o -name '*.dylib' \) -exec codesign --force --sign - {} \;
 ```
 
 ### API generation

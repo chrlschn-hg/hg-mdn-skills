@@ -84,7 +84,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Stacked PRs: `github:cesarferreira/stax` (pinned; installs `st` and `stax`).  Then, per machine: `st setup --yes` and `st doctor` (setup, usage, and CI watching: `references/stax.md`)
   - Cloud CLIs (`aws-cli`, `gcloud`, `azure-cli`) with their config under `.config` (see the template); other tools asked for
   - Tasks `up`, `down`, `build`, `openapi`, `generate`, `test`, `image`, `format`, `lint`, `check` from the template; `mise tasks` lists them.  `mise run check` is the definition of done
-  - Verify: `mise install`, `dotnet --version`, `mise tasks`
+  - Verify: `mise install`, `dotnet --version`, `mise tasks`.  macOS: if `dotnet --version` dies with SIGTERM after the first install, apply the ad hoc codesign fix (`references/root-files.md`, "Mise and .NET")
 3. Set up skills, `AGENTS.md`, `README.md`, and editor config (templates: `references/root-files.md`)
   - VS Code (`.vscode/extensions.json`, `settings.json`, `tasks.json`): format on save with CSharpier (C#, XML) and `oxfmt` through the Oxc extension (TypeScript, Vue, CSS, JSON); `source.fixAll.oxc` for lint fixes; Markdown tools (markdownlint, Markdown All in One) but **no format on save for Markdown** (formatters pad tables and churn diffs; `.oxfmtrc.json` ignores `**/*.md` so the CLI agrees)
   - Vendor the stax agent skill: `mise run stax-skill` (writes `.agents/skills/stax/SKILL.md` from `st --skill`, matching the pinned version); list it in `AGENTS.md` (`references/stax.md`)
