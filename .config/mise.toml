@@ -1,0 +1,8 @@
+# Tools for verifying the skills' code: .NET to build it, CSharpier to format it, CSharpRepl to probe it.
+#   Install:  mise install        Docs: https://mise.jdx.dev/llms.txt
+# NOTE: this file lives in `.config/`, not the repo root.
+
+[tools]
+dotnet = "11.0.100"
+"dotnet:CSharpier" = "1.4.0" # C# 15 syntax needs 1.4.0 or later
+"dotnet:CsharpRepl" = "0.9.2"

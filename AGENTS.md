@@ -13,6 +13,15 @@ Provides agents instructions to build modern .NET full stack applications
 - Ask for independent review before finalizing
 - Use good comment hygeine; idiomatic to the language because other agents will follow your cue.  Comments explain "why", cross reference ideas, cite sources (e.g. reference URLs, etc.)
 
+## Tooling
+
+- [Mise](https://mise.jdx.dev/llms.txt) provides the tools: `mise install` reads `.config/mise.toml` (.NET SDK, `csharpier`, `csharprepl`); run them as `csharpier check <dir>` or `mise exec -- <tool>`
+- macOS: if `dotnet --version` dies with SIGTERM after the first `mise install`, re-sign the install ad hoc (`-H` because the install directory is a symlink):
+
+  ```sh
+  find -H "$(mise where dotnet)" -type f \( -name dotnet -o -name '*.dylib' \) -exec codesign --force --sign - {} \;
+  ```
+
 ## Verifying
 
 - Verify behaviors using file-based C# apps (single file `.cs` file) or `.csx` scripts
