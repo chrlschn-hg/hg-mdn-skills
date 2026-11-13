@@ -5,7 +5,7 @@ CSharpRepl attaches to the running backend and evaluates C# inside it: real DI, 
 ## How it is wired
 
 - `dotnet:CsharpRepl` is pinned in `.config/mise.toml`.
-- In run mode the AppHost calls `csharprepl connect init` (`host/ProcessUtils.cs`) and passes the resulting `DOTNET_STARTUP_HOOKS` and `ASPNETCORE_HOSTINGSTARTUPASSEMBLIES` to the backend resource only.  If `csharprepl` is missing the AppHost logs `Skipping CSharpRepl connect setup` and carries on.
+- In run mode the AppHost calls `csharprepl connect init` (`CSharpReplEnvironment()` in `host/AppHost.cs`) and passes the resulting `DOTNET_STARTUP_HOOKS` and `ASPNETCORE_HOSTINGSTARTUPASSEMBLIES` to the backend resource only.  If `csharprepl` is missing the AppHost logs `Skipping CSharpRepl` and carries on.
 - Never set those variables machine-wide; only on the process to inspect.  Outside Aspire:
 
   ```bash
@@ -161,4 +161,4 @@ $"env={env} migrations={migrations}"      // => "env=Development migrations=0"
 | `--streamPipedInput` | Stdin is split per line, so `#`-commands and C# mix freely: `printf '%s\n' '#patches' '#revert all' \| NO_COLOR=1 csharprepl connect $PID --streamPipedInput`.  Without the flag the whole stdin is one submission and `#`-commands fail (`CS1024`). |
 | top-level `using var scope = ...` or `try`/`catch` in a `.csx` | Fails (`CS1002`): use the scope helpers; wrap the body in an async lambda inside `UseScopedAsync`. |
 | a handler ignores your arguments | It may generate its own correlation ids: read the id from its result, then search the logs for it. |
-| `connect list` is empty | The hook did not load: `aspire logs app-backend --search "Skipping CSharpRepl connect setup"` explains why (usually `csharprepl` missing from `PATH`: `mise install`). |
+| `connect list` is empty | The hook did not load: the AppHost's startup output says `Skipping CSharpRepl: ...` and why (usually `csharprepl` missing from `PATH`: `mise install`). |

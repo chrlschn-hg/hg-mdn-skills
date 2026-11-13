@@ -103,6 +103,8 @@ The `Sdk="Aspire.AppHost.Sdk/<version>"` attribute cannot be centralized.  Bump 
 // Aspire host: orchestrates the local runtime.  Anything the app needs to run locally
 // (databases, emulators, the front-end, code generation) is registered here.
 // Docs: https://aspire.dev/llms.txt   Start: `mise run up`   Stop: `mise run down`
+using System.ComponentModel;
+using System.Diagnostics;
 using Aspire.Hosting.Yarp;
 using Aspire.Hosting.Yarp.Transforms;
 
@@ -141,7 +143,7 @@ var postgres = builder
 // The resource name is the connection string name the backend reads (`DataSetup.ConnectionStringName`).
 var db = postgres.AddDatabase("<project>");
 
-// Backend.  CSharpRepl: expose the startup-hook environment so `csharprepl connect` can attach.
+// Backend.  CSharpRepl: in run mode, pass the startup-hook environment so `csharprepl connect` can attach.
 var backend = builder
     .AddProject<Projects.<PROJECT>_Runtime>("app-backend")
     .WaitFor(db)
@@ -154,7 +156,7 @@ var backend = builder
 
 if (builder.ExecutionContext.IsRunMode)
 {
-    foreach (var (name, value) in ProcessUtils.TryGetCSharpReplConnectEnvironment())
+    foreach (var (name, value) in CSharpReplEnvironment())
     {
         backend.WithEnvironment(name, value);
     }
@@ -248,104 +250,42 @@ if (builder.Configuration["LIBREDB_ALLOWED_ORIGINS"] is { Length: > 0 } allowedO
 }
 
 builder.Build().Run();
-```
 
-### `host/ProcessUtils.cs`
-
-Asks `csharprepl connect init` for the startup-hook environment variables.  If `csharprepl` is missing the AppHost logs `Skipping CSharpRepl connect setup` and continues; it never blocks startup.
-
-```csharp
-using System.ComponentModel;
-using System.Diagnostics;
-
-/// <summary>
-/// Runs small local processes needed by the AppHost.
-/// </summary>
-/// <remarks>
-/// Used to ask CSharpRepl for the startup-hook environment variables that let it attach to the
-/// running backend (see the `csharprepl` reference in the `hg-mdn-backend` skill).  Missing
-/// tooling never blocks startup: the AppHost logs the skip and runs without REPL attachment.
-/// See: https://www.nuget.org/packages/CSharpRepl
-/// </remarks>
-internal static class ProcessUtils
+// CSharpRepl: `csharprepl connect init` prints `export NAME="VALUE"` lines (DOTNET_STARTUP_HOOKS and
+// ASPNETCORE_HOSTINGSTARTUPASSEMBLIES).  Parse them all: the tool owns the names.
+// A missing or failing tool skips the hook; it never blocks the AppHost.
+// See: https://www.nuget.org/packages/CSharpRepl
+static IReadOnlyList<(string Name, string Value)> CSharpReplEnvironment()
 {
-    public static IReadOnlyDictionary<string, string> TryGetCSharpReplConnectEnvironment()
+    try
     {
-        try
-        {
-            return GetCSharpReplConnectEnvironment();
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
-        {
-            Console.WriteLine($"Skipping CSharpRepl connect setup: {ex.Message}");
-            return new Dictionary<string, string>();
-        }
-    }
+        using var process = Process.Start(
+            new ProcessStartInfo("csharprepl", "connect init")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            }
+        )!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
 
-    /// <summary>
-    /// Runs `csharprepl connect init` and parses the shell exports it prints
-    /// (`export DOTNET_STARTUP_HOOKS="..."`, etc.).
-    /// </summary>
-    private static IReadOnlyDictionary<string, string> GetCSharpReplConnectEnvironment()
-    {
-        var startInfo = new ProcessStartInfo("csharprepl", "connect init")
-        {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Failed to start csharprepl connect init.");
-
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-
-        if (!process.WaitForExit(TimeSpan.FromSeconds(10)))
-        {
-            process.Kill(entireProcessTree: true);
-            throw new InvalidOperationException("csharprepl connect init timed out.");
-        }
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"csharprepl connect init failed with exit code {process.ExitCode}: {errorTask.GetAwaiter().GetResult()}"
-            );
-        }
-
-        return outputTask
-            .GetAwaiter()
-            .GetResult()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var exports = output
+            .Split('\n', StringSplitOptions.TrimEntries)
             .Where(line => line.StartsWith("export ", StringComparison.Ordinal))
-            .Select(ParseShellExport)
-            .ToDictionary(pair => pair.Name, pair => pair.Value, StringComparer.Ordinal);
+            .Select(line => line["export ".Length..].Split('=', 2))
+            .Select(pair => (pair[0], pair[1].Trim('"')))
+            .ToList();
+
+        if (exports.Count == 0)
+        {
+            Console.WriteLine("Skipping CSharpRepl: `csharprepl connect init` printed no exports.");
+        }
+        return exports;
     }
-
-    /// <summary>
-    /// Parses one `export NAME="VALUE"` line.  Deliberately strict: the tool version is pinned in
-    /// `.config/mise.toml`, and a parse failure becomes a logged skip, never a startup crash.
-    /// </summary>
-    private static (string Name, string Value) ParseShellExport(string line)
+    catch (Win32Exception)
     {
-        var assignment = line["export ".Length..];
-        var separatorIndex = assignment.IndexOf('=', StringComparison.Ordinal);
-
-        if (separatorIndex < 1)
-        {
-            throw new InvalidOperationException($"Unexpected csharprepl export line: {line}");
-        }
-
-        var name = assignment[..separatorIndex];
-        var value = assignment[(separatorIndex + 1)..].Trim();
-
-        if (value.Length < 2 || value[0] != '"' || value[^1] != '"')
-        {
-            throw new InvalidOperationException($"Unexpected csharprepl export value: {line}");
-        }
-
-        return (name, value[1..^1]);
+        Console.WriteLine("Skipping CSharpRepl: `csharprepl` is not on PATH.");
+        return [];
     }
 }
 ```
