@@ -10,24 +10,16 @@ One image, one origin.  The Docker build copies the front-end's `dist/` into the
 | Image | `build/Dockerfile` | a Node stage builds `dist/`, the .NET stage copies it to `wwwroot` and publishes |
 | Development | Vite `server.proxy` | the browser talks to Vite; `/api` is forwarded to the backend |
 
-`SpaSetup.cs` is in `hg-mdn-scaffold`, `references/backend-templates.md`.  The pipeline in `Program.cs`, which is also the order that matters (static files before request logging and security; the fallback after the API):
+`SpaSetup.cs` is in `hg-mdn-scaffold`, `references/backend-templates.md`.  The pipeline in `Program.cs` (`composition-root.md`) is also the order that matters (static files before request logging and security; the fallback after the API):
 
 ```csharp
 app.UseExceptionHandler();
-
-// The built front-end, when it is in `wwwroot` (the Docker image).  Public, and before request
-// logging so assets do not flood the log.
-app.Use<PROJECT>Spa();
+app.Use<PROJECT>Spa();            // public, and before request logging so assets do not flood the log
 app.UseSerilogRequestLogging();
-
-// Authentication, then authorization: before the endpoints they protect.
-app.Use<PROJECT>Security();
-
-// The API lives under /api so it cannot collide with front-end routes such as /notes.
-app.Map<PROJECT>Endpoints("/api");
-
-// Anything else that is not a file is a client-side route: index.html.
-app.Map<PROJECT>SpaFallback();
+app.Use<PROJECT>Security();       // authentication, then authorization: before the endpoints they protect
+app.Map<PROJECT>OpenApi();        // Development only
+app.Map<PROJECT>Endpoints("/api"); // under /api so it cannot collide with front-end routes such as /notes
+app.Map<PROJECT>SpaFallback();    // anything else that is not a file is a client-side route: index.html
 ```
 
 ## Rules

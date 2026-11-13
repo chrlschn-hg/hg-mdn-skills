@@ -92,13 +92,13 @@ VS Code nests `AppSettings.*.cs` under `AppSettings.cs` (see the `.vscode/settin
 
 ## Binding and validation
 
-`Program.cs` binds the section and validates **at startup**, so a bad configuration stops the app immediately instead of failing on first use:
+`SettingsSetup` (`runtime/Setup/SettingsSetup.cs`, called as `Add<PROJECT>Settings` from `Program.cs`) binds the section and validates **at startup**, so a bad configuration stops the app immediately instead of failing on first use.  Add rules to its `AddOptions` chain:
 
 ```csharp
-// Program.cs
-builder
-    .Services.AddOptions<AppSettings>()
-    .Bind(builder.Configuration.GetSection(nameof(AppSettings)))
+// SettingsSetup.Add<PROJECT>Settings
+services
+    .AddOptions<AppSettings>()
+    .Bind(configuration.GetSection(nameof(AppSettings)))
     .Validate(
         settings => settings.Limits.MaxNotes > 0,
         "AppSettings:Limits:MaxNotes must be greater than zero."
@@ -109,7 +109,8 @@ builder
 - `ValidateOnStart()` is what makes `Validate(...)` eager.
 - One predicate and one clear message per rule (`AppSettings:Limits:MaxNotes must be greater than zero.`).
 - Inject `IOptions<AppSettings>` (or `IOptionsMonitor<AppSettings>` when values may change at runtime) into handlers and services; do not read `IConfiguration` outside startup code.
-- Needed before the container exists (for example to choose a provider)?  `builder.Configuration.GetSection(nameof(AppSettings)).Get<AppSettings>()` once in `Program.cs`.
+- Needed before the container exists (for example to choose a provider)?  `builder.Configuration.GetSection(nameof(AppSettings)).Get<AppSettings>()` once in `Program.cs`, passed into the `Add<PROJECT>X` call that needs it.
+- Another settings class: one more `AddOptions<T>()` in `SettingsSetup` (`composition-root.md`).
 
 ## Secrets
 
@@ -129,7 +130,7 @@ The database resource name in `AppHost.cs` is the connection string name: `AddDa
 
 ## Environments
 
-`ASPNETCORE_ENVIRONMENT` is `Development` locally (launch profile) and `Production` by default elsewhere.  Gate development-only behavior on `app.Environment.IsDevelopment()` (Scalar, OpenAPI endpoints, detailed errors), never on a custom flag.
+`ASPNETCORE_ENVIRONMENT` is `Development` locally (launch profile) and `Production` by default elsewhere.  Gate development-only behavior on `app.Environment.IsDevelopment()` (Scalar, OpenAPI endpoints, detailed errors), never on a custom flag, and inside the setup method that owns it (`Map<PROJECT>OpenApi`), not around the call in `Program.cs`.
 
 ## Ports
 

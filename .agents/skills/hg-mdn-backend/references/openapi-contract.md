@@ -12,7 +12,7 @@ src/app/src/api/<project>-api.json         OpenAPI document; COMMITTED
 src/app/src/api/generated/                 TypeScript types + fetch clients; git-ignored, never hand-edited
 ```
 
-Scalar (`/scalar`, Development only) renders the same document for humans; `/openapi/v1.json` serves it live.
+Scalar (`/scalar`, Development only) renders the same document for humans; `/openapi/v1.json` serves it live.  Both are set up in one class, `OpenApiSetup` (`composition-root.md`).
 
 ## Changing the contract
 
@@ -94,7 +94,7 @@ Check your work by reading the operation as someone who has never seen the code:
 
 The scaffold sets these (`hg-mdn-scaffold`, `references/backend-templates.md`): `OpenApiDocumentsDirectory` (relative to the runtime csproj, pointing at `src/app/src/api`), the file name (`--file-name <project>-api`, which `kubb.config.ts` `input` must match), and `GenerateDocumentationFile` (lets XML docs reach the schema).  Release builds skip generation, so container and CI builds do not need `src/app`.
 
-Document generation **executes `Program.cs`** under an entry assembly named `GetDocument.Insider`, up to `app.Run()`.  Anything that touches a database, a queue, the network, or required secrets goes behind the template's `isOpenApiGeneration` guard.  Handlers are fine: they resolve at request time.
+Document generation **runs the whole host** (`Program.cs`, hosted services, and `app.Run()` with a no-op server) under an entry assembly named `GetDocument.Insider`.  Registrations must not need a database, a queue, the network, or a secret: read them when the service is first built, not when it is registered.  Startup work that needs them goes in `StartupSetup`, after its `IsGeneratingDocument` guard.  Handlers are fine: they resolve at request time.  Details and the failure you see without the guard: `composition-root.md`.
 
 ## Hosting
 
@@ -108,7 +108,7 @@ The document is regenerated on every build, so front-end and backend in one repo
 
 | Symptom | Cause |
 |---|---|
-| `dotnet build` fails inside `GenerateOpenApiDocuments` | `Program.cs` needs infrastructure in generation mode (see above) |
+| `dotnet build` fails inside `GenerateOpenApiDocuments` | startup work or a registration needs infrastructure in generation mode (see above) |
 | the JSON never appears in `src/app/src/api` | wrong relative `OpenApiDocumentsDirectory`, or a Release build |
 | Kubb: input not found | `kubb.config.ts` `input` file name differs from `--file-name` |
 | client function is named oddly | missing `WithName` |
