@@ -2920,25 +2920,23 @@ app.Run();
 
 ### `src/backend/runtime/DebugRepl.cs`
 
-CSharpRepl helpers (step 10).  `Get<T>()` in the REPL resolves singletons/transients only; these give scoped services (DbContext, stores) a scope.  Remove with step 10 if the REPL hook is declined.
+CSharpRepl helpers (step 10). These helpers create scopes for scoped services such as DbContext and stores. The file adds no startup work. Remove it with step 10 if you decline the REPL hook.
 
 ```csharp
 using System.Text.Json;
 
-// NOTE: Deliberately the bare `<PROJECT>` namespace rather than `<PROJECT>.Runtime`.  These members are
-// typed into REPL eval strings by hand, and extension members need a `using` directive (they
-// cannot be called fully qualified), so the shortest import is `using <PROJECT>;`.
+// Keep the helpers in the root namespace for short REPL imports.
+// Extension syntax uses `using <PROJECT>;`; a fully qualified static call also works.
 namespace <PROJECT>;
 
 /// <summary>
-/// Scoped-service helpers on <see cref="IServiceProvider"/> for CSharpRepl diagnostics.
+/// Opens dependency-injection scopes for CSharpRepl diagnostics.
 /// </summary>
 /// <remarks>
-/// CSharpRepl attaches to the running backend (see the `csharprepl` reference in the
-/// `hg-mdn-backend` skill) and exposes the root provider as the global `services`.  `Get&lt;T&gt;()`
-/// resolves singletons and transients only; scoped services (DbContext, stores) need a scope, so
-/// these helpers wrap "create scope, resolve, invoke, dispose".  Inert unless called; anyone who
-/// can evaluate code in the process can already create scopes.
+/// CSharpRepl exposes the running app's root provider as <c>services</c>.
+/// Scoped services need a scope, so these helpers create one, invoke a callback, and dispose it.
+/// Return plain data from each callback. The scope ends when the callback completes.
+/// The helpers add no startup work.
 /// </remarks>
 public static class DebugReplExtensions
 {
@@ -2947,11 +2945,12 @@ public static class DebugReplExtensions
     extension(IServiceProvider provider)
     {
         /// <summary>
-        /// Resolves <typeparamref name="TService"/> in a fresh scope, invokes the callback, and
-        /// disposes the scope.  Return plain data, not the service: the scope ends on return.
-        /// The return type must be explicit (C# has no partial type inference):
-        /// `services.Use&lt;AppDbContext, int&gt;(db =&gt; db.Database.GetMigrations().Count())`.
+        /// Resolves one service in a fresh scope and returns the callback result.
         /// </summary>
+        /// <remarks>
+        /// Return data, not the service. The scope ends on return.
+        /// Specify every type argument because C# does not support partial type argument inference.
+        /// </remarks>
         public T Use<TService, T>(Func<TService, T> action)
             where TService : notnull
         {
@@ -2961,20 +2960,22 @@ public static class DebugReplExtensions
         }
 
         /// <summary>
-        /// Async variant of <c>Use</c>; the scope stays alive until the callback's task completes.
+        /// Resolves one service in a fresh scope and awaits the callback before disposal.
         /// </summary>
+        /// <remarks>
+        /// The await keeps the scope alive until the callback's task completes.
+        /// Fire-and-forget work inside the callback is unsupported because the scope ends on return.
+        /// </remarks>
         public async Task<T> UseAsync<TService, T>(Func<TService, Task<T>> action)
             where TService : notnull
         {
             using var scope = provider.CreateScope();
 
-            // The await is load-bearing: returning the task directly would dispose the scope
-            // before the callback completes.
             return await action(scope.ServiceProvider.GetRequiredService<TService>());
         }
 
         /// <summary>
-        /// Two services in one shared scope (nesting two <c>UseAsync</c> calls would create two scopes).
+        /// Resolves two services in one fresh scope and awaits the callback before disposal.
         /// </summary>
         public async Task<T> UseAsync<TService1, TService2, T>(
             Func<TService1, TService2, Task<T>> action
@@ -2983,17 +2984,59 @@ public static class DebugReplExtensions
             where TService2 : notnull
         {
             using var scope = provider.CreateScope();
-            var sp = scope.ServiceProvider;
+            var scopedProvider = scope.ServiceProvider;
 
             return await action(
-                sp.GetRequiredService<TService1>(),
-                sp.GetRequiredService<TService2>()
+                scopedProvider.GetRequiredService<TService1>(),
+                scopedProvider.GetRequiredService<TService2>()
             );
         }
 
         /// <summary>
-        /// Hands the raw scoped provider to the callback: keyed services, more than two services,
-        /// or <c>IEnumerable&lt;T&gt;</c> resolution.
+        /// Resolves three services in one fresh scope and awaits the callback before disposal.
+        /// </summary>
+        public async Task<T> UseAsync<TService1, TService2, TService3, T>(
+            Func<TService1, TService2, TService3, Task<T>> action
+        )
+            where TService1 : notnull
+            where TService2 : notnull
+            where TService3 : notnull
+        {
+            using var scope = provider.CreateScope();
+            var scopedProvider = scope.ServiceProvider;
+
+            return await action(
+                scopedProvider.GetRequiredService<TService1>(),
+                scopedProvider.GetRequiredService<TService2>(),
+                scopedProvider.GetRequiredService<TService3>()
+            );
+        }
+
+        /// <summary>
+        /// Passes a raw scoped provider to a synchronous callback.
+        /// </summary>
+        /// <remarks>
+        /// Use this for multiple services, keyed services, or <c>IEnumerable&lt;T&gt;</c> resolution.
+        /// </remarks>
+        public T UseScoped<T>(Func<IServiceProvider, T> action)
+        {
+            using var scope = provider.CreateScope();
+
+            return action(scope.ServiceProvider);
+        }
+
+        /// <summary>
+        /// Passes a raw scoped provider to an asynchronous callback.
+        /// </summary>
+        public async Task UseScopedAsync(Func<IServiceProvider, Task> action)
+        {
+            using var scope = provider.CreateScope();
+
+            await action(scope.ServiceProvider);
+        }
+
+        /// <summary>
+        /// Passes a raw scoped provider to an asynchronous callback and returns its result.
         /// </summary>
         public async Task<T> UseScopedAsync<T>(Func<IServiceProvider, Task<T>> action)
         {
@@ -3004,23 +3047,28 @@ public static class DebugReplExtensions
     }
 
     /// <summary>
-    /// Awaits the task and serializes the result to compact JSON; <see cref="RawOutput"/> prints
-    /// unescaped in the REPL (no `\"` around every quote).
+    /// Awaits a task and serializes its result to compact JSON.
     /// </summary>
+    /// <remarks>
+    /// CSharpRepl prints the <see cref="RawOutput"/> result without string escaping.
+    /// </remarks>
     public static async Task<RawOutput> AsJsonAsync<T>(this Task<T> task) =>
         new(JsonSerializer.Serialize(await task));
 
     /// <summary>
-    /// Same as <see cref="AsJsonAsync{T}"/>, indented.
+    /// Awaits a task and serializes its result to indented JSON.
     /// </summary>
     public static async Task<RawOutput> AsJsonIndentedAsync<T>(this Task<T> task) =>
         new(JsonSerializer.Serialize(await task, Indented));
 
     /// <summary>
-    /// Wraps a string so the REPL pretty-printer renders it as-is.
+    /// Wraps a string so CSharpRepl prints it without escaping it.
     /// </summary>
     public readonly struct RawOutput(string value)
     {
+        /// <summary>
+        /// Returns the wrapped string.
+        /// </summary>
         public override string ToString() => value;
     }
 }

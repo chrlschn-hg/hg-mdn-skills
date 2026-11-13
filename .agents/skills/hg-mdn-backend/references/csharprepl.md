@@ -33,31 +33,60 @@ NO_COLOR=1 csharprepl connect 98990 --eval 'services is not null'       # => tru
 
 Use `NO_COLOR=1` for parseable output.  Multi-line C#, `using` directives, and top-level `await` all work inside the string.
 
+## Add the helper to an existing project
+
+If you skipped scaffold step 10:
+
+1. Copy `DebugRepl.cs` from the [scaffold template](../../hg-mdn-scaffold/references/backend-templates.md) to `src/backend/runtime/`.  Keep `namespace <PROJECT>;`.
+2. Enable the hook as described above.  The file needs no registration and no startup code, and it is inert until a REPL calls it.
+3. Keep the hook in Development only.  The startup-hook variables, not the file, allow attachment, and a Production process accepts attachment when they are set.  The Aspire template sets them in Run mode with no environment check: run the backend with Development settings, and never set them in production.
+
+With the hook enabled, check a scoped `AppDbContext`:
+
+```bash
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using <PROJECT>.Data; await services.UseAsync<AppDbContext, bool>(async db => await db.Database.CanConnectAsync())'  # => true
+```
+
 ## Globals and resolving services
 
-- `services`: the root `IServiceProvider`.  `Get<T>()` is `services.GetRequiredService<T>()`: **singletons and transients only**.
-- Scoped services (DbContext, stores) fail with `Cannot resolve scoped service ... from root provider`.  Use the scope helpers from `DebugRepl.cs` (`src/backend/runtime`, a scaffold template; `using <PROJECT>;` first):
+- `services`: the root `IServiceProvider`.  `Get<T>()` is `services.GetRequiredService<T>()`.
+- Scope validation is on in Development.  There, a scoped service resolved from `services` fails: `Cannot resolve scoped service '<PROJECT>.Data.AppDbContext' from root provider.`  With validation off it resolves from the root, with the root's lifetime.  Use a helper either way.
+- Extension syntax needs `using <PROJECT>;` (the helpers live in the root namespace so the import stays short).  Without it: CS1061.  A fully qualified static call needs no import: `<PROJECT>.DebugReplExtensions.UseScoped<int>(services, _ => 1)`.
 
 | Helper | Use for |
 |---|---|
-| `services.Use<TSvc, T>(svc => ...)` | one scoped service, sync |
-| `await services.UseAsync<TSvc, T>(async svc => ...)` | one scoped service, async |
-| `await services.UseAsync<TSvc1, TSvc2, T>(async (a, b) => ...)` | two services in **one** scope |
-| `await services.UseScopedAsync<T>(async sp => ...)` | raw scoped provider: more than two services, keyed services |
-| `... .AsJsonAsync()` / `.AsJsonIndentedAsync()` | print a result as unescaped JSON |
+| `services.Use<TService, T>(service => ...)` | one service in a fresh scope, sync |
+| `await services.UseAsync<TService, T>(async service => ...)` | one service in a fresh scope, async |
+| `await services.UseAsync<TService1, TService2, T>(async (a, b) => ...)` | two services in one scope |
+| `await services.UseAsync<TService1, TService2, TService3, T>(async (a, b, c) => ...)` | three services in one scope |
+| `services.UseScoped<T>(sp => ...)` | raw scoped provider, sync; multiple services, keyed services, or `IEnumerable<T>` |
+| `await services.UseScopedAsync(sp => ...)` | raw scoped provider, async; no result |
+| `await services.UseScopedAsync<T>(async sp => ...)` | raw scoped provider, async; return a result |
+| `.AsJsonAsync()` / `.AsJsonIndentedAsync()` | print a task result as unescaped JSON |
+| `RawOutput` | print its wrapped string without extra escaping; returned by the JSON helpers |
 
-Specify every type argument: C# has no partial type inference, so `UseAsync<AppDbContext>` does not compile; the return type `T` is explicit.  Return plain data, not the service: the scope ends when the callback returns.  Do not nest `UseAsync` calls to get two services: each call makes its own scope; use the two-service overload or `UseScopedAsync`.
+There is no synchronous two-service overload: use `UseScoped<T>`.  Raw provider lookups (`GetRequiredKeyedService`, `IEnumerable<T>`) need `using Microsoft.Extensions.DependencyInjection;` in the eval.
+
+Give every type argument: C# has no partial type argument inference, so `UseAsync<AppDbContext>` does not compile; write `UseAsync<AppDbContext, bool>`.  Return plain data, not a service or provider: the scope ends when the callback completes.  Do not nest `UseAsync` calls to share a scope: each call makes its own.  Fire-and-forget work in a callback can outlive the scope: do not start it.
+
+Prefer top-level `await` with the async helpers.  `.Result` and `.GetAwaiter().GetResult()` inside `Use` also work: they block until the task ends.
 
 ```bash
-# transient handler, no scope needed
-NO_COLOR=1 csharprepl connect $PID --eval 'Get<<PROJECT>.Health.HealthHandler>().HandleAsync().Result.Value.Status'
+# Read the migration list through the scoped database service -> compact JSON.
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using <PROJECT>.Data; await services.UseAsync<AppDbContext, List<string>>(async db => await db.Database.GetAppliedMigrationsAsync()).AsJsonAsync()'  # => ["Initial"]
 
-# scoped DbContext
-NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; await services.UseAsync<<PROJECT>.Data.AppDbContext, bool>(async db => await db.Database.CanConnectAsync())'
+# Resolve two services from one synchronous scope.
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using Microsoft.Extensions.DependencyInjection; services.UseScoped<string>(sp => { var key = sp.GetRequiredKeyedService<KeyedProbe>("blue").Key; var names = sp.GetRequiredService<IEnumerable<IThing>>().Select(item => item.Name); return key + ":" + string.Join(",", names); })'  # => "blue:first,second"
 
-# query through the process's own EF mappings (not psql) -> JSON
-NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using Microsoft.EntityFrameworkCore; await services.UseAsync<<PROJECT>.Data.AppDbContext, List<string>>(async db => (await db.Database.GetAppliedMigrationsAsync()).ToList()).AsJsonAsync()'
+# Resolve a keyed service and an IEnumerable<T> in one async scope -> raw JSON.
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using Microsoft.Extensions.DependencyInjection; await services.UseScopedAsync<List<string>>(async sp => { await Task.Yield(); var key = sp.GetRequiredKeyedService<KeyedProbe>("blue").Key; return new[] { key }.Concat(sp.GetRequiredService<IEnumerable<IThing>>().Select(item => item.Name)).ToList(); }).AsJsonAsync()'  # => ["blue","first","second"]
+
+# Blocking on a task inside `Use` completes.
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using <PROJECT>.Data; services.Use<AppDbContext, bool>(db => db.Database.CanConnectAsync().Result)'  # => true
+NO_COLOR=1 csharprepl connect $PID --eval 'using <PROJECT>; using <PROJECT>.Data; services.Use<AppDbContext, bool>(db => db.Database.CanConnectAsync().GetAwaiter().GetResult())'  # => true
 ```
+
+Replace `KeyedProbe` and `IThing` in the examples with registered service types from your app.
 
 ## Patching live code
 
