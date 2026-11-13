@@ -30,6 +30,8 @@ src/backend/
     <PROJECT>.Runtime.Tests/   lints the real routes: every one secured or listed as anonymous
   runtime/
     <PROJECT>.Runtime.csproj, Program.cs, appsettings*.json, Properties/launchSettings.json
+    Setup/                     one static class per runtime-only concern (settings, OpenAPI + Scalar,
+                               startup work); `Program.cs` only calls them
 ```
 
 ## Shared build configuration
@@ -218,7 +220,7 @@ public sealed record ApiError(string Code, string Message);
 
 ### `src/backend/packages/<PROJECT>.Api/HttpExceptionHandler.cs`
 
-Wired in `Program.cs` with `AddExceptionHandler<HttpExceptionHandler>().AddProblemDetails()` and `app.UseExceptionHandler()`.  Returns a problem-details 500 with `traceId` (exception text in Development only) and logs once.
+Wired by `Add<PROJECT>ErrorHandling()` (`HttpSetup`) and `app.UseExceptionHandler()` in `Program.cs`.  Returns a problem-details 500 with `traceId` (exception text in Development only) and logs once.
 
 ```csharp
 using System.Diagnostics;
@@ -295,6 +297,13 @@ public static class HttpSetup
 {
     extension(IServiceCollection services)
     {
+        /// <summary>
+        /// Turns unhandled exceptions into problem-details responses (<see cref="HttpExceptionHandler"/>).
+        /// Pair with `app.UseExceptionHandler()`, first in the pipeline.
+        /// </summary>
+        public IServiceCollection Add<PROJECT>ErrorHandling() =>
+            services.AddExceptionHandler<HttpExceptionHandler>().AddProblemDetails();
+
         /// <summary>
         /// Scans the application's assemblies and registers every <see cref="IEndpoint"/> (by
         /// interface) and <see cref="IEndpointHandler"/> (by concrete type) as transient.
@@ -2731,6 +2740,105 @@ public sealed class RouteSecurityLintTests
 }
 ```
 
+### `src/backend/packages/<PROJECT>.Runtime.Tests/OpenApiSetupTests.cs`
+
+The document lists every named route under `/api` (a route missing a name or a mapping error shows up here before it reaches the Kubb client), and the document and Scalar are served in Development only.  The host mirrors `Program.cs` for the OpenAPI and endpoint calls and nothing else; no database is touched.
+
+```csharp
+using System.Net;
+using System.Text.Json;
+using <PROJECT>.Api;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+namespace <PROJECT>.Runtime.Tests;
+
+/// <summary>
+/// The OpenAPI document and the Scalar UI: complete, and Development only.
+/// Run: dotnet run --project src/backend/packages/<PROJECT>.Runtime.Tests --treenode-filter "/*/*/OpenApiSetupTests/*"
+/// </summary>
+public sealed class OpenApiSetupTests
+{
+    private static async Task<WebApplication> StartAsync(string environment)
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions { EnvironmentName = environment }
+        );
+        builder.WebHost.UseTestServer();
+        // Development validates every registration on build; handlers need stores and services that
+        // only the runtime registers, and this test never resolves one.
+        builder.Host.UseDefaultServiceProvider(options => options.ValidateOnBuild = false);
+        builder.Services.Add<PROJECT>Authorization().Add<PROJECT>OpenApi().Add<PROJECT>Endpoints();
+
+        var app = builder.Build();
+        app.Map<PROJECT>OpenApi();
+        app.Map<PROJECT>Endpoints("/api"); // same prefix as `Program.cs`
+        await app.StartAsync();
+
+        return app;
+    }
+
+    [Test]
+    public async Task OpenApiDocument_Development_ListsEveryNamedApiRoute()
+    {
+        await using var app = await StartAsync("Development");
+
+        var response = await app.GetTestClient().GetAsync("/openapi/v1.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        // `WithName` is the operation id, so the names of the mapped routes are the documented ones.
+        var mapped = ((IEndpointRouteBuilder)app)
+            .DataSources.SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/") == true)
+            .Select(endpoint =>
+                endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName
+            )
+            .OfType<string>();
+        var documented = document
+            .RootElement.GetProperty("paths")
+            .EnumerateObject()
+            .SelectMany(path => path.Value.EnumerateObject())
+            .Where(operation => operation.Value.ValueKind == JsonValueKind.Object)
+            .Select(operation => operation.Value.GetProperty("operationId").GetString())
+            .OfType<string>();
+
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await mapped.Should().NotBeEmpty();
+        await documented.Should().BeEquivalentTo(mapped);
+    }
+
+    [Test]
+    [Arguments("/openapi/v1.json")]
+    [Arguments("/scalar/v1")]
+    public async Task OpenApiRoutes_Development_AreServed(string path)
+    {
+        await using var app = await StartAsync("Development");
+
+        var response = await app.GetTestClient().GetAsync(path);
+
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+    }
+
+    [Test]
+    [Arguments("/openapi/v1.json")]
+    [Arguments("/scalar")]
+    [Arguments("/scalar/v1")]
+    public async Task OpenApiRoutes_Production_AreNotServed(string path)
+    {
+        await using var app = await StartAsync("Production");
+
+        var response = await app.GetTestClient().GetAsync(path);
+
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
+    }
+}
+```
+
 ## Runtime
 
 ### `src/backend/runtime/<PROJECT>.Runtime.csproj`
@@ -2756,6 +2864,9 @@ public sealed class RouteSecurityLintTests
     <AssemblyMetadata Include="BuildTimeUtc" Value="$([System.DateTime]::UtcNow.ToString('o'))" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="<PROJECT>.Runtime.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
     <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
@@ -2779,107 +2890,189 @@ public sealed class RouteSecurityLintTests
 
 ### `src/backend/runtime/Program.cs`
 
-**`isOpenApiGeneration`:** build-time OpenAPI generation (`Microsoft.Extensions.ApiDescription.Server`) runs this entry point under the `GetDocument.Insider` assembly and executes everything up to `app.Run()`.  Anything that needs infrastructure (database connection, migrations, network calls) must be skipped in that mode or `dotnet build` fails.  Remove the data lines if no database was chosen.  Security: `Add<PROJECT>Authorization().Add<PROJECT>Authentication(...)` and `Use<PROJECT>Security()` (before the endpoints); replace the placeholder authentication with the real scheme.  The front-end is same-origin (the runtime serves it in production, the Vite dev server proxies `/api` in development), so there is no CORS.  Pipeline: `Use<PROJECT>Spa()` (static files, public) before request logging and security; the API under `/api`; `Map<PROJECT>SpaFallback()` last.  `BuildInfo` is registered once, passed to telemetry as `service.version`, and logged at startup.
+`Program.cs` is a table of contents: one call per concern, no logic.  Each `Add<PROJECT>X` is a static class in a package (`<PROJECT>.Api`, `<PROJECT>.Data`, `<PROJECT>.Telemetry`) or in `Setup/` below; the backend skill's `references/composition-root.md` has the rules and the recipes.  Remove `Add<PROJECT>Data` and the migration line in `StartupSetup` if no database was chosen.  Replace the placeholder authentication (`Add<PROJECT>Authentication`) with the real scheme.
 
 ```csharp
-using System.Reflection;
 using <PROJECT>.Api;
-using <PROJECT>.Config;
 using <PROJECT>.Data;
 using <PROJECT>.Health;
+using <PROJECT>.Runtime;
 using <PROJECT>.Telemetry;
-using Scalar.AspNetCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Build-time OpenAPI generation (Microsoft.Extensions.ApiDescription.Server) runs this entry
-// point under `GetDocument.Insider` and executes everything up to `app.Run()`.  Anything that
-// needs infrastructure (database, etc.) must be skipped in that mode or the build fails.
-var isOpenApiGeneration = Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
-
-// Settings into the DI container
-builder
-    .Services.AddOptions<AppSettings>()
-    .Bind(builder.Configuration.GetSection(nameof(AppSettings)))
-    .ValidateOnStart();
-
-// Unhandled exceptions -> problem details (see `HttpExceptionHandler`)
-builder.Services.AddExceptionHandler<HttpExceptionHandler>().AddProblemDetails();
-
-// OpenAPI.  No CORS: the front-end is same-origin (served by this host in production, proxied by
-// Vite in development), so browsers never call across origins.
-builder.Services.AddOpenApi();
-
-// What is running (version, commit, build time), stamped by the build.  Health reports it.
+// What is running (version, commit, build time), stamped by the build.  Telemetry reports the
+// version, Health reports all three, and the startup log prints them.
 var buildInfo = BuildInfo.From(typeof(Program).Assembly);
-builder.Services.AddSingleton(buildInfo);
 
-// Logging and telemetry
-builder.Services.Add<PROJECT>Telemetry(
-    new()
-    {
-        ServiceName = <PROJECT>Telemetry.ActivitySourceName,
-        ServiceVersion = buildInfo.Version,
-        ActivitySourceName = <PROJECT>Telemetry.ActivitySourceName,
-    }
-);
-
-// Security: policies and route-group rules (`<PROJECT>.Api`), plus placeholder authentication.
-// Development signs in a configured user (`Security:DevelopmentUser`); everywhere else every
-// secured route answers 401 until you replace `Add<PROJECT>Authentication` with your real scheme.
 builder
-    .Services.Add<PROJECT>Authorization()
-    .Add<PROJECT>Authentication(builder.Environment, builder.Configuration);
-
-// Endpoint discovery
-builder.Services.Add<PROJECT>Endpoints();
-
-// Data access (needs the Aspire-provided connection string)
-if (!isOpenApiGeneration)
-{
-    builder.Services.Add<PROJECT>Data(builder.Configuration);
-}
+    .Services.Add<PROJECT>Settings(builder.Configuration)
+    .AddSingleton(buildInfo)
+    .Add<PROJECT>Telemetry(
+        new()
+        {
+            ServiceName = <PROJECT>Telemetry.ActivitySourceName,
+            ServiceVersion = buildInfo.Version,
+            ActivitySourceName = <PROJECT>Telemetry.ActivitySourceName,
+        }
+    )
+    .Add<PROJECT>ErrorHandling()
+    .Add<PROJECT>OpenApi()
+    .Add<PROJECT>Authorization()
+    .Add<PROJECT>Authentication(builder.Environment, builder.Configuration)
+    .Add<PROJECT>Endpoints()
+    .Add<PROJECT>Data(builder.Configuration);
 
 var app = builder.Build();
 
-if (!isOpenApiGeneration)
-{
-    // Applies pending migrations.
-    await app.Services.Use<PROJECT>DataAsync();
-}
+await app.Services.Use<PROJECT>StartupAsync();
 
-// OpenAPI document + Scalar UI (dev only; the schema is also generated at build time)
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-    app.MapScalarApiReference();
-}
-
+// The order is the design.  Errors first; the front-end's static files are public and come before
+// request logging (assets would flood the log) and security (the shell loads before anyone signs
+// in); the API lives under /api so it cannot collide with front-end routes such as /notes; the
+// SPA fallback comes last.  The front-end is same-origin (this host serves it in production, the
+// Vite dev server proxies /api in development), so there is no CORS.
 app.UseExceptionHandler();
-
-// The built front-end, when it is in `wwwroot` (the Docker image).  Public, and before request
-// logging so assets do not flood the log.
 app.Use<PROJECT>Spa();
 app.UseSerilogRequestLogging();
-
-// Authentication, then authorization: before the endpoints they protect.
 app.Use<PROJECT>Security();
-
-// The API lives under /api so it cannot collide with front-end routes such as /notes.
+app.Map<PROJECT>OpenApi();
 app.Map<PROJECT>Endpoints("/api");
-
-// Anything else that is not a file is a client-side route: index.html.
 app.Map<PROJECT>SpaFallback();
 
-Log.Information(
-    "Starting {Version} (commit {Commit}, built {BuiltAtUtc})",
-    buildInfo.Version,
-    buildInfo.ShortCommit,
-    buildInfo.BuiltAtUtc?.ToString("u") ?? "unknown"
-);
-
 app.Run();
+```
+
+### `src/backend/runtime/Setup/SettingsSetup.cs`
+
+Every settings class is bound here, once, and validated when the host starts: a bad configuration stops the app at startup instead of failing on first use.  Add one `AddOptions<T>()` per settings class (`references/configuration.md`).
+
+```csharp
+using <PROJECT>.Config;
+
+namespace <PROJECT>.Runtime;
+
+internal static class SettingsSetup
+{
+    extension(IServiceCollection services)
+    {
+        /// <summary>
+        /// Binds <see cref="AppSettings"/> from the `AppSettings` section (appsettings, environment
+        /// variables, user-secrets) and validates it at startup.
+        /// </summary>
+        public IServiceCollection Add<PROJECT>Settings(IConfiguration configuration)
+        {
+            services
+                .AddOptions<AppSettings>()
+                .Bind(configuration.GetSection(nameof(AppSettings)))
+                .ValidateOnStart();
+
+            return services;
+        }
+    }
+}
+```
+
+### `src/backend/runtime/Setup/OpenApiSetup.cs`
+
+The OpenAPI document and the Scalar UI that renders it, in one place.  Both are public and Development-only: `MapOpenApi` and Scalar sit outside the secured route groups, so a deployed environment never serves them (the build still writes the document).  `IsGeneratingDocument` is here because it is an OpenAPI fact: the build-time generator runs this host.  Scalar's options each have a reason in the comments; `references/composition-root.md` (Scalar) lists what else exists.
+
+```csharp
+using System.Reflection;
+using Scalar.AspNetCore;
+
+namespace <PROJECT>.Runtime;
+
+/// <summary>
+/// The OpenAPI document (`/openapi/v1.json`) and the Scalar UI (`/scalar`).  The same document is
+/// written at build time into `src/app/src/api`, where Kubb reads it.
+/// </summary>
+internal static class OpenApiSetup
+{
+    /// <summary>
+    /// True when `dotnet build` runs this entry point to write the OpenAPI document
+    /// (`Microsoft.Extensions.ApiDescription.Server`, assembly `GetDocument.Insider`).  The tool
+    /// runs the whole host, hosted services and `app.Run()` included, but with no database and no
+    /// network.  Startup work that needs infrastructure must check this first.
+    /// </summary>
+    public static bool IsGeneratingDocument { get; } =
+        Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+
+    extension(IServiceCollection services)
+    {
+        /// <summary>Registers the OpenAPI document generator.</summary>
+        public IServiceCollection Add<PROJECT>OpenApi() => services.AddOpenApi();
+    }
+
+    extension(WebApplication app)
+    {
+        /// <summary>
+        /// Serves the document and the Scalar UI in Development only.  Both are public: they sit
+        /// outside the secured route groups, and a deployed environment must not expose them.
+        /// </summary>
+        public WebApplication Map<PROJECT>OpenApi()
+        {
+            if (app.Environment.IsDevelopment())
+            {
+                app.MapOpenApi();
+                app.MapScalarApiReference(options =>
+                    options
+                        .WithTitle("<PROJECT> API")
+                        // The operation id is the generated client's function name (`WithName`):
+                        // it connects an operation here to the call in the front-end.
+                        .ShowOperationId()
+                );
+            }
+
+            return app;
+        }
+    }
+}
+```
+
+### `src/backend/runtime/Setup/StartupSetup.cs`
+
+Startup work: what must finish after `Build()` and before the first request, and needs infrastructure.  Add each step here, after the guard.
+
+```csharp
+using <PROJECT>.Data;
+using <PROJECT>.Health;
+using <PROJECT>.Telemetry;
+
+namespace <PROJECT>.Runtime;
+
+internal static class StartupSetup
+{
+    private static readonly Serilog.ILogger Log = Serilog.Log.ForContext(typeof(StartupSetup));
+
+    extension(IServiceProvider services)
+    {
+        /// <summary>
+        /// Logs what is starting and applies pending migrations.  Call once, after `Build()`.
+        /// </summary>
+        public async Task Use<PROJECT>StartupAsync()
+        {
+            // The document generator runs the whole host with no database, and must not wait on
+            // one.  This is the only place the runtime branches on it.
+            if (OpenApiSetup.IsGeneratingDocument)
+            {
+                return;
+            }
+
+            var build = services.GetRequiredService<BuildInfo>();
+            Log.Here()
+                .Information(
+                    "Starting {Version} (commit {Commit}, built {BuiltAtUtc})",
+                    build.Version,
+                    build.ShortCommit,
+                    build.BuiltAtUtc?.ToString("u") ?? "unknown"
+                );
+
+            await services.Use<PROJECT>DataAsync();
+        }
+    }
+}
 ```
 
 ### `src/backend/runtime/appsettings.json`
