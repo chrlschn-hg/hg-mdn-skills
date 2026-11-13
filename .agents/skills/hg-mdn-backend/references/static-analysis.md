@@ -23,9 +23,31 @@ The compiler is the fastest reviewer an agent has: a rule it enforces fails `dot
 ```
 
 - **A warning that is tolerated is invisible.**  Once a build prints twenty warnings nobody, human or agent, notices the twenty-first.  With zero tolerance, a new warning is a failed build that names its cause.
-- **Fix, do not silence.**  When a rule is wrong for this codebase, change its severity once in `.editorconfig` **with the reason as a comment**; never `#pragma warning disable` to make a build pass, and never a blanket `NoWarn` for a category.
+- **Fix first.  Suppress only on purpose.**  Never dismiss a warning by default and never to finish a task.  Fix the cause.  If the rule is wrong for this case, suppress it deliberately (next section).
 - **NuGet warnings become errors too**: `NU1701` (a package restored for the wrong framework) and the vulnerability audit warnings (`NU1901`-`NU1904`) now fail the build.  That is the point: a newly published vulnerability stops the build until the package is upgraded.  Do not downgrade them to keep a build green.
 - `CS1591` (missing XML doc) stays suppressed in the template: docs are required on public types and contract parameters by convention (`code-style.md`), not on every member.
+
+## Suppress on purpose: case by case
+
+A suppression is a decision, not a shortcut.  The agent decides per warning: is the rule wrong *here*, or is the code wrong?  If the code is wrong, fix it.  If the rule is wrong, use the narrowest scope that covers it and write the reason where the next reader will see it.
+
+| Scope | Mechanism | The reason goes |
+|---|---|---|
+| One site | `#pragma warning disable <id>` + `restore`, or `[SuppressMessage]` with `Justification` | on the `disable` line |
+| One rule, whole repo or folder | `dotnet_diagnostic.<id>.severity` in `.editorconfig` (example below) | comment above the line |
+| One id, one project | `<NoWarn>$(NoWarn);<id></NoWarn>` in the `.csproj` or `Directory.Build.props` (example below) | XML comment |
+
+```csharp
+// Narrowest scope: one id, one statement, restored right after.
+#pragma warning disable CS0618 // Obsolete: v1 stays until the v2 rollout ends (issue #123).
+var bytes = Legacy.Export(report);
+#pragma warning restore CS0618
+```
+
+- **One id each time.**  Never a bare `#pragma warning disable`, a category, or a blanket `NoWarn`.
+- **Never `TreatWarningsAsErrors` off**, not even per project, and never `-warnaserror-`.  Downgrade one rule instead.
+- **The reason says why the rule is wrong here.**  "Needed to build" is not a reason.
+- A suppression that keeps coming back for the same cause becomes an `.editorconfig` severity (one place, one reason), a banned symbol, or an analyzer.
 
 ## The built-in analyzers: `AnalysisLevel`
 
@@ -290,7 +312,7 @@ public sealed class HandlerTakesHttpContextAnalyzerTests
 
 ## Checklist
 
-1. `TreatWarningsAsErrors` is on and the build is clean; no `#pragma` disables.
-2. Every severity override in `.editorconfig` has a comment with its reason.
+1. `TreatWarningsAsErrors` is on (backend and Aspire host) and the build is clean.
+2. Every suppression (`#pragma`, `[SuppressMessage]`, `.editorconfig` severity, `NoWarn`) names one id, uses the narrowest scope, and carries its reason.
 3. A rule that keeps coming up in review becomes a banned symbol or an analyzer, with tests.
-4. Agents: a build error with a rule id is the instruction.  Read the message, fix the cause, and never suppress the rule to finish a task.
+4. Agents: a build error with a rule id is the instruction.  Read the message and fix the cause.  Suppress only when the rule is wrong for this case; never to finish a task.

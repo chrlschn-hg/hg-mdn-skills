@@ -51,7 +51,8 @@ src/backend/
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- Applies the .editorconfig style rules (braces, exhaustive switches) during `dotnet build`. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <!-- Zero tolerance: every compiler, analyzer, and NuGet warning fails the build. -->
+    <!-- Zero tolerance: every compiler, analyzer, and NuGet warning fails the build.  Fix the cause; suppress one
+         id, narrowly and with a reason, only when the rule is wrong for that case (static-analysis.md). -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Version of a build that is not given one.  Releases pass `-p:Version=1.2.3` (and the commit
          as `-p:SourceRevisionId=<sha>`); the runtime reports both (`BuildInfo`). -->
@@ -78,7 +79,7 @@ Tests assert with the fluent `Should()` syntax (`await value.Should().BeEqualTo(
 
 ### `src/backend/Directory.Packages.props`
 
-Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it; `TUnit.Assertions.Should` is a beta that `Directory.Build.targets` adds to every project that references `TUnit`.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  **The EF Core family is one major line, and it trails the SDK:** `Microsoft.EntityFrameworkCore.*`, `Npgsql.EntityFrameworkCore.PostgreSQL`, and `EFCore.NamingConventions` each require EF Core `< 11`, and the Npgsql provider had no stable 11.x on 2026-11-12, so these entries stay on 10.0.x and run on `net11.0` (ASP.NET Core and the rest of the set are 11.0.0).  When a stable Npgsql 11.x ships, move all three (and `dotnet-ef`) together, then `mise run check`.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
+Central package management is the default: versions live here only; csproj files use bare `<PackageReference Include="..." />`, and an inline `Version` fails with `NU1008`.  `dotnet add package <id>` writes the `PackageVersion` entry here for you; use `VersionOverride` on one reference only with a reason.  The Aspire host has its own file (`aspire-host.md`).  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it; `TUnit.Assertions.Should` is a beta that `Directory.Build.targets` adds to every project that references `TUnit`.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  **The EF Core family is one major line, and it trails the SDK:** `Microsoft.EntityFrameworkCore.*`, `Npgsql.EntityFrameworkCore.PostgreSQL`, and `EFCore.NamingConventions` each require EF Core `< 11`, and the Npgsql provider had no stable 11.x on 2026-11-12, so these entries stay on 10.0.x and run on `net11.0` (ASP.NET Core and the rest of the set are 11.0.0).  When a stable Npgsql 11.x ships, move all three (and `dotnet-ef`) together, then `mise run check`.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
 
 ```xml
 <Project>

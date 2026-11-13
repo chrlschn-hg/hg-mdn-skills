@@ -13,7 +13,7 @@ Both are optional and per table: add them when the table needs them, not by defa
 
 A UUID is a poor thing to show: 36 characters, unreadable aloud, awkward in a URL.  Keep it internal and add a **second, unique column** for what people see.  It is never a key and never a foreign key target.
 
-- **Library:** [`Nanoid`](https://github.com/codeyu/nanoid-net) (MIT): `Nanoid.Generate(alphabet, size)`.  `dotnet add package Nanoid`; with central package management add the version to `Directory.Packages.props`.
+- **Library:** [`Nanoid`](https://github.com/codeyu/nanoid-net) (MIT): `Nanoid.Generate(alphabet, size)`.  `dotnet add package Nanoid` (central package management: it writes the version to `Directory.Packages.props`).
 - **Use a custom alphabet, not the default.**  The default mixes cases, digits, `_` and `-`: hard to read aloud, case-sensitive, and it can spell words.  Use **safe lowercase alphanumeric** (`23456789bcdfghjkmnpqrstvwxz`, 27 characters): digits `2`-`9` and lowercase consonants.  No vowels, so an id cannot spell a word; no lookalikes (`0`/`o`, `1`/`l`/`i`, and no `y`); no capitals, so it is not case-sensitive.
 - **Length:** 12 characters from 27 is 27^12 (about 1.5e17).  The chance that a new id already exists is about `rows / 1.5e17`, so even a billion rows collide rarely.  Longer ids cost URL length, shorter ones cost retries (10 characters is 2e14: fine below about a hundred million rows).
 - **Generate in one helper** (below), in a shared project once a second slice needs it.  Check the shape at the edge (`IsValid`) before querying: a route value that cannot be an id is a 404.

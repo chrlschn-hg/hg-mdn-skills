@@ -1,8 +1,8 @@
 # Aspire Host Templates (step 9)
 
 The Aspire AppHost in `host/`: Postgres, the backend (with the CSharpRepl hook), the Vite front-end,
-Kubb in watch mode, and LibreDB for browsing the database. An optional YARP proxy gives the app one
-local origin. Add `host/host.csproj` to the solution.
+Kubb in watch mode, and LibreDB for browsing the database.  An optional YARP proxy gives the app one
+local origin.  Add `host/host.csproj` to the solution.
 
 Placeholders (`<PROJECT>`, `<project>`, `<BACKEND_API_PORT>`, `<GUID>`, ...): see `SKILL.md`.
 Versions are a snapshot: replace each with the latest stable at scaffold time.
@@ -11,31 +11,36 @@ Notes:
 
 - `AspireUseCliBundle` must be `true` (otherwise the build warns `ASPIRE010`); keep the SDK and
   package versions equal to the installed Aspire CLI's version line.
+- The host starts under central package management (`host/Directory.Packages.props`) and
+  `TreatWarningsAsErrors`, like `src/backend`.  Add a package with `dotnet add package <id> --project host`.
 - `Projects.<PROJECT>_Runtime` is generated from the project reference; dots in the project name
   become underscores.
 - **Ports:** fixed are the backend port (`launchSettings.json`, repeated as the `/api` proxy fallback in `vite.config.ts`; under Aspire the URL is injected) and the
   AppHost's dashboard, OTLP, and resource-service ports in `host/Properties/launchSettings.json`; change
-  them when another AppHost on the machine already uses them. The front-end and LibreDB ports are assigned
-  by Aspire. The optional app proxy uses port 80 by default; only one checkout can use that port at a time.
+  them when another AppHost on the machine already uses them.  The front-end and LibreDB ports are assigned
+  by Aspire: never pin them (`aspire describe`).  The optional app proxy uses port 80 by default; only one checkout can use that port at a time.
 - **Resource names** are a contract (`aspire` commands, AGENTS.md, the backend skill's `references/debugging-aspire.md`):
   `postgres`, `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`; `app-proxy` appears when enabled.
 - LibreDB login: `admin@libredb.org` and the generated `libredb-admin-password` parameter in the dashboard's
-  **Parameters** page. The Postgres connection is seeded and managed (locked in the UI).
-- LibreDB is dev-only. It holds database credentials and can modify data. Never expose its port publicly.
-- LibreDB uses a pinned multi-architecture image digest. Look up the current index with
+  **Parameters** page.  The Postgres connection is seeded and managed (locked in the UI).
+- LibreDB is dev-only.  It holds database credentials and can modify data.  Never expose its port publicly.
+- LibreDB uses a pinned multi-architecture image digest.  Look up the current index with
   `docker buildx imagetools inspect ghcr.io/libredb/libredb-studio:latest` and copy the top-level `Digest` into
   `WithImageSHA256`; update the pin on purpose.
 - Set `LIBREDB_ALLOWED_ORIGINS` only when a reverse proxy rewrites `Host` and does not send `x-forwarded-host`.
-  Use comma-separated full origins or bare hosts. Leave it unset for the direct Aspire endpoint.
-- Enable the same-origin app proxy with `APP_ORIGIN_PROXY=1`. It routes `/api`, `/scalar`, and `/openapi` to the
-  backend and all other paths to Vite. The dashboard's API reference link follows the proxy when enabled.
-  The default `http://<project>.localhost` origin uses port 80. Set `APP_ORIGIN_PROXY_PORT` when another checkout
-  needs a different port; the origin then includes that port. In a Linux dev container, add `<project>.localhost`
-  to `/etc/hosts` because Node may not resolve `*.localhost`. Browser-only Codespaces uses the forwarded HTTPS URL.
+  Use comma-separated full origins or bare hosts.  Leave it unset for the direct Aspire endpoint.
+- Enable the same-origin app proxy with `APP_ORIGIN_PROXY=1`.  It routes `/api`, `/scalar`, and `/openapi` to the
+  backend and all other paths to Vite.  The dashboard's API reference link follows the proxy when enabled.
+  The default `http://<project>.localhost` origin uses port 80.  Set `APP_ORIGIN_PROXY_PORT` when another checkout
+  needs a different port; the origin then includes that port.  In a Linux dev container, add `<project>.localhost`
+  to `/etc/hosts` because Node may not resolve `*.localhost`.  Browser-only Codespaces uses the forwarded HTTPS URL.
 - `aspire run` finds the AppHost through `host/aspire.config.json`; run it from the repo root.
 - Aspire prompts for parameters it has no value for; the defaults here are local-development values only.
 
 ### `host/host.csproj`
+
+`host/` sits outside `src/backend`, so `src/backend/Directory.Build.props` and `Directory.Packages.props` do not
+apply to it.  The host repeats both defaults: zero warnings and central package management.
 
 ```xml
 <Project Sdk="Aspire.AppHost.Sdk/13.6.5">
@@ -45,6 +50,8 @@ Notes:
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AspireUseCliBundle>true</AspireUseCliBundle>
+    <!-- Same zero tolerance as src/backend/Directory.Build.props. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <UserSecretsId><GUID></UserSecretsId>
   </PropertyGroup>
 
@@ -53,9 +60,29 @@ Notes:
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.5" />
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
-    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.6.5" />
+    <!-- Bare references: versions live in host/Directory.Packages.props (an inline Version fails with NU1008). -->
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.Yarp" />
+  </ItemGroup>
+</Project>
+```
+
+### `host/Directory.Packages.props`
+
+The `Sdk="Aspire.AppHost.Sdk/<version>"` attribute cannot be centralized.  Bump it and every
+`Aspire.Hosting.*` entry together, and keep them equal to the Aspire CLI's version line.
+
+```xml
+<Project>
+  <!-- Central package management for the AppHost: the SDK and every Aspire.Hosting.* package share one version. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.Yarp" Version="13.6.5" />
   </ItemGroup>
 </Project>
 ```

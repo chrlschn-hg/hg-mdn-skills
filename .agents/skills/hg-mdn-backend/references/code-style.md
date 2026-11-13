@@ -413,7 +413,7 @@ return notes;
 ## Tooling
 
 - `csharpier format src host` formats C# and the `.csproj`/`.props`/`.slnx` XML; `csharpier check` is what CI runs.  VS Code formats on save through the CSharpier extension (`.vscode/settings.json`).
-- Analyzer warnings are real: fix them or suppress with a reason; do not blanket-disable.
+- Analyzer warnings are real: fix the cause.  Suppress only case by case, one id, with a reason (`static-analysis.md`, "Suppress on purpose").
 - Warnings are errors (`TreatWarningsAsErrors`); banned APIs and custom analyzers: `static-analysis.md`.  Repeated, mechanical code: `source-generators.md`.
 - `.editorconfig` raises the rules that matter to warnings (IDE0011 braces, IDE0072/IDE0010 exhaustive switches) and `EnforceCodeStyleInBuild` in `Directory.Build.props` makes the build report them.  Add a rule the same way: `dotnet_diagnostic.IDEnnnn.severity = warning`.
 - Look up an unfamiliar API instead of guessing: `inspecting-packages.md`.
