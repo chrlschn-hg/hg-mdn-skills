@@ -22,7 +22,7 @@ A plan is cheap and a wrong turn is not: settle the objective, the design, and t
 - The user asks for a plan, spec, design, estimate, or "how would we..."
 - A request is ambiguous, or has more than one reasonable design
 
-Skip it for a small, local fix: say what you will change and do it.
+Skip it for a small, local fix: say what you will change and do it.  Use a risk-based heuristic; do not over plan for small, simple, low-risk fixes.  That wastes more time and tokens.
 
 ## Instructions
 
@@ -76,6 +76,7 @@ Make the draft implementable with no ambiguity:
 - **Open Decisions**: every unresolved choice in one section, each with options and a recommendation
 - **Consistent**: check that names, types, and flows agree across sections; call out any inconsistency
 - Written for a technical audience that has not seen the discussion
+- **Team**: if the work can be parallelized and divided, what should the team composition look like and how will work be coordinated?
 
 ### 4. Work log (`.log.md`)
 
