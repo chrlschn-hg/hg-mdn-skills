@@ -21,9 +21,9 @@ Notes:
   by Aspire: never pin them (`aspire describe`).  The optional app proxy uses port 80 by default; only one checkout can use that port at a time.
 - **Resource names** are a contract (`aspire` commands, AGENTS.md, the backend skill's `references/debugging-aspire.md`):
   `postgres`, `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`; `app-proxy` appears when enabled.
-- LibreDB login: `admin@libredb.org` and the generated `libredb-admin-password` parameter in the dashboard's
-  **Parameters** page.  The Postgres connection is seeded and managed (locked in the UI).
-- LibreDB is dev-only.  It holds database credentials and can modify data.  Never expose its port publicly.
+- LibreDB login: `admin@libredb.org` / `P@ssw0rd`.  The credentials are fixed on purpose, like the Postgres ones:
+  LibreDB is local-only and the values are public.  The Postgres connection is seeded and managed (locked in the UI).
+- LibreDB is local-only.  It can read and modify the database.  Never expose its port beyond the machine.
 - LibreDB uses a pinned multi-architecture image digest.  Look up the current index with
   `docker buildx imagetools inspect ghcr.io/libredb/libredb-studio:latest` and copy the top-level `Digest` into
   `WithImageSHA256`; update the pin on purpose.
@@ -208,20 +208,15 @@ if (useAppOriginProxy)
 }
 
 // LibreDB (database UI).  Open the "libredb" resource endpoint in the Aspire dashboard.
-//   Login:    admin@libredb.org
-//   Password: the generated `libredb-admin-password` parameter (dashboard > Parameters)
+//   Login: admin@libredb.org / P@ssw0rd
+// Fixed credentials, like Postgres above: LibreDB is local-only, so a known value costs nothing and nobody
+// has to look a generated one up.
 // The connection is seeded from `libredb/seed-connections.yaml`; SQLite stores saved queries and history.
-var libredbPassword = builder.AddParameter(
-    "libredb-admin-password",
-    new GenerateParameterDefault { MinLength = 20, Special = false },
-    secret: true,
-    persist: true
-);
+var libredbPassword = builder.AddParameter("libredb-admin-password", "P@ssw0rd", secret: true);
 var libredbJwtSecret = builder.AddParameter(
     "libredb-jwt-secret",
-    new GenerateParameterDefault { MinLength = 48, Special = false },
-    secret: true,
-    persist: true
+    "local-dev-only-jwt-secret-min-32-chars!!",
+    secret: true
 );
 
 var libredb = builder
