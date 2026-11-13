@@ -1,13 +1,13 @@
 # Debugging with the Aspire CLI
 
-Read logs, spans, and traces of the running app from the terminal: no dashboard UI needed.  The stack is started with `mise run up` (detached) and stopped with `mise run down`.  Resource names come from `host/AppHost.cs`: `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`, `postgres`.
+Read logs, spans, and traces of the running app from the terminal: no dashboard UI needed. The stack is started with `mise run up` (detached) and stopped with `mise run down`. Resource names come from `host/AppHost.cs`: `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`, `postgres`; `app-proxy` is optional.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `aspire ps` | List running AppHosts: path, SDK, PID, dashboard URL. |
-| `aspire describe` | Every resource with state, health, and URLs (front-end and LibreDB ports are assigned dynamically). |
+| `aspire describe` | Every resource with state, health, and URLs (front-end and LibreDB ports are assigned dynamically; the optional app proxy uses port 80 by default). |
 | `aspire logs <resource> -n <N> --search <text>` | Tail and filter log lines. |
 | `aspire logs <resource> -f` | Stream logs live. |
 | `aspire otel spans <resource> --search <text>` | Individual spans with attributes and source location. |
