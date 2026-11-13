@@ -231,8 +231,8 @@ public sealed class ListNotesHandlerTests
 
         var response = (await handler.HandleAsync(other.Id, CancellationToken.None)).Value!;
 
-        await Assert.That(response.Items.Count).IsEqualTo(2);
-        await Assert.That(response.Items.All(item => item.NotebookId == other.Id)).IsTrue();
+        await response.Items.Count.Should().BeEqualTo(2);
+        await response.Items.All(item => item.NotebookId == other.Id).Should().BeTrue();
     }
 
     [Test]
@@ -249,7 +249,7 @@ public sealed class ListNotesHandlerTests
 
         var response = (await handler.HandleAsync(null, CancellationToken.None)).Value!;
 
-        await Assert.That(response.Items.Count).IsEqualTo(7);
+        await response.Items.Count.Should().BeEqualTo(7);
     }
 }
 ```
@@ -274,8 +274,8 @@ public async Task ListAsync_NotebookIdSpecified_ReturnsMatchingNotes()
     var inFirst = await new NoteStore(_context).ListAsync(first.Id, CancellationToken.None);
     var inSecond = await new NoteStore(_context).ListAsync(second.Id, CancellationToken.None);
 
-    await Assert.That(inFirst.Count).IsEqualTo(2);
-    await Assert.That(inSecond.Count).IsEqualTo(3);
+    await inFirst.Count.Should().BeEqualTo(2);
+    await inSecond.Count.Should().BeEqualTo(3);
 }
 ```
 
@@ -306,9 +306,10 @@ public async Task ListAsync_DistinctCreatedAtUtc_ReturnsNewestFirst()
 
     var listed = await new NoteStore(_context).ListAsync(null, CancellationToken.None);
 
-    await Assert
-        .That(listed.Select(note => note.Id))
-        .IsEquivalentTo([notes[1].Id, notes[2].Id, notes[0].Id], CollectionOrdering.Matching);
+    await listed
+        .Select(note => note.Id)
+        .Should()
+        .BeEquivalentTo([notes[1].Id, notes[2].Id, notes[0].Id], CollectionOrdering.Matching);
 }
 ```
 
@@ -330,7 +331,7 @@ public async Task Note_CreatedAtUtc_SurvivesTheDatabaseRoundTrip()
 
     var saved = (await new NoteStore(_context).ListAsync(null, CancellationToken.None)).Single();
 
-    await Assert.That(saved.CreatedAtUtc).IsEqualTo(note.CreatedAtUtc);
+    await saved.CreatedAtUtc.Should().BeEqualTo(note.CreatedAtUtc);
 }
 ```
 
@@ -395,7 +396,7 @@ public async Task CreateAsync_TransientBiomeInput_PersistsNote()
 
     var saved = (await store.ListAsync(notebook.Id, CancellationToken.None)).Single();
 
-    await Assert.That(saved.Title).IsEqualTo("Hello");
+    await saved.Title.Should().BeEqualTo("Hello");
 }
 ```
 

@@ -1,6 +1,6 @@
 # TUnit Reference
 
-The TUnit pieces beyond the everyday `[Test]` and `await Assert.That(...)`: data sources, hooks, parallelism, assertions, and the xUnit equivalents.  Suite layout, run commands, and fakes: `testing.md`.  Read <https://tunit.dev/llms.txt> before writing unusual tests (data sources, lifecycle, dependency injection, retries).
+The TUnit pieces beyond the everyday `[Test]` and `await value.Should()...`: data sources, hooks, parallelism, assertions, and the xUnit equivalents.  Suite layout, run commands, and fakes: `testing.md`.  Read <https://tunit.dev/llms.txt> before writing unusual tests (data sources, lifecycle, dependency injection, retries).
 
 ## Tour
 
@@ -23,14 +23,14 @@ public sealed class TUnitProbeTests
     [Arguments("bb", 2)]
     public async Task Length_InputString_ReturnsExpectedLength(string input, int expected)
     {
-        await Assert.That(input.Length).IsEqualTo(expected);
+        await input.Length.Should().BeEqualTo(expected);
     }
 
     [Test]
     [MethodDataSource(nameof(Titles))]
     public async Task Trim_WhitespaceAroundText_ReturnsTrimmedText(string raw, string expected)
     {
-        await Assert.That(raw.Trim()).IsEqualTo(expected);
+        await raw.Trim().Should().BeEqualTo(expected);
     }
 
     public static IEnumerable<(string, string)> Titles()
@@ -40,27 +40,28 @@ public sealed class TUnitProbeTests
     }
 
     [Test]
-    public async Task Assert_CombinedAndMultipleChecks_Pass()
+    public async Task Assertions_ChainedAndGrouped_Pass()
     {
         var value = 3;
 
-        await Assert.That(value).IsPositive().And.IsEqualTo(3);
+        await value.Should().BeGreaterThan(0).And.BeEqualTo(3);
 
         using (Assert.Multiple())
         {
-            await Assert.That(value).IsGreaterThan(1);
-            await Assert.That(_log).Contains("setup");
+            await value.Should().BeGreaterThan(1);
+            await _log.Should().Contain("setup");
         }
     }
 
     [Test]
-    public async Task Assert_SynchronousAndAsynchronousExceptions_MatchExpectedTypeAndMessage()
+    public async Task Throw_SyncAndAsyncDelegates_MatchTypeAndMessage()
     {
-        await Assert.That(() => int.Parse("nope")).Throws<FormatException>();
-        await Assert
-            .That(async () => await Task.FromException(new InvalidOperationException("boom")))
-            .Throws<InvalidOperationException>()
-            .WithMessageContaining("boom");
+        Action parse = () => int.Parse("nope");
+        Func<Task> fail = async () =>
+            await Task.FromException(new InvalidOperationException("boom"));
+
+        await parse.Should().Throw<FormatException>();
+        await fail.Should().Throw<InvalidOperationException>().WithMessageContaining("boom");
     }
 
     [Test]
@@ -70,7 +71,7 @@ public sealed class TUnitProbeTests
         // [Explicit]: skipped by a normal run; run it by filtering for it by name.
         var ran = true;
 
-        await Assert.That(ran).IsTrue();
+        await ran.Should().BeTrue();
     }
 
     [Test]
@@ -79,7 +80,7 @@ public sealed class TUnitProbeTests
     {
         var ran = true;
 
-        await Assert.That(ran).IsTrue();
+        await ran.Should().BeTrue();
     }
 }
 ```
@@ -88,7 +89,7 @@ public sealed class TUnitProbeTests
 - Hooks: `[Before(Test)]` / `[After(Test)]` per test, `[Before(Class)]` / `[After(Class)]`, `[Before(Assembly)]`, `[Before(TestSession)]`.  Hooks may be async.
 - `[Property("Category", "Smoke")]` tags a class or test; filter with `[Category=Smoke]`.
 - Tests run in parallel by default.  `[NotInParallel]` serializes a test (shared global state); `[ParallelLimiter<T>]` caps concurrency.
-- `.And` / `.Or` chains cannot be mixed in one chain (`MixedAndOrAssertionsException`); split into separate `Assert.That` calls.
+- `.And` / `.Or` cannot be mixed in one chain (build error `TUnitAssertions0001`); split into separate assertions.  A `Should()` chain that is not awaited is `TUnitAssertions0002`.
 - `Assert.Multiple()` collects every failure instead of stopping at the first.
 - Skipping: `[Skip("reason")]`; subclass `SkipAttribute` for conditional skips (for example infrastructure tests that cannot run in CI).
 - `[Explicit]` excludes a test from normal runs; it runs only when a filter targets it by name (`--treenode-filter "/*/*/*/ExplicitTest_NameFilteredRun_Runs"`).  Use it for slow, costly, or environment-dependent checks (a probe against a live service).
@@ -96,24 +97,40 @@ public sealed class TUnitProbeTests
 
 ## Assertions
 
-Docs: [getting started](https://tunit.dev/docs/assertions/getting-started), [equality and comparison](https://tunit.dev/docs/assertions/equality-and-comparison), [combining](https://tunit.dev/docs/assertions/combining-assertions), [exceptions](https://tunit.dev/docs/assertions/exceptions).
+Tests assert with the fluent **`Should()`** syntax: `await value.Should().BeEqualTo(x)`.  It comes from the optional `TUnit.Assertions.Should` package, which is published only as a **beta** (`1.84.0-beta`) and generates each method from a TUnit assertion by renaming it: `Is*` becomes `Be*`, `IsNot*` `NotBe*`, `Has*` `Have*`, `DoesNotContain` `NotContain`, `Contains` `Contain`, `Throws` `Throw`.  The scaffold's `Directory.Build.targets` adds the package and its two namespaces (`TUnit.Assertions.Should`, `TUnit.Assertions.Should.Extensions`) to every project that references `TUnit`; a project that adds it by hand needs both namespaces as usings.
+
+Docs: [Should syntax](https://tunit.dev/docs/assertions/should-syntax) (this page), [equality and comparison](https://tunit.dev/docs/assertions/equality-and-comparison), [combining](https://tunit.dev/docs/assertions/combining-assertions), [exceptions](https://tunit.dev/docs/assertions/exceptions) (these four use the underlying `Assert.That(...)` names; apply the renaming above).
 
 ```csharp
-await Assert.That(result).IsEqualTo(10);
-await Assert.That(score).IsGreaterThan(70);
-await Assert.That(percentage).IsBetween(0, 100);
-await Assert.That(actual).IsEqualTo(expected).Within(0.001);     // double/float/decimal tolerance
-await Assert.That(instance).IsSameReferenceAs(other);            // reference, not value, equality
-await Assert.That(notes.Select(n => n.Title)).IsEquivalentTo(["newer", "older"], CollectionOrdering.Matching);   // collections, in this order
+await result.Should().BeEqualTo(10);
+await score.Should().BeGreaterThan(70);
+await percentage.Should().BeBetween(0, 100);
+await actual.Should().BeCloseTo(expected, 0.001); // double/float/decimal tolerance
+await instance.Should().BeSameReferenceAs(other); // reference, not value, equality
+await notes
+    .Select(n => n.Title)
+    .Should()
+    .BeEquivalentTo(["newer", "older"], CollectionOrdering.Matching); // collections, in this order
 
-await Assert.That(() => int.Parse("x")).Throws<FormatException>();                 // exact type or subclass
-await Assert.That(() => Validate(null!)).Throws<ArgumentNullException>().WithParameterName("user");
-await Assert.That(async () => await FailingAsync()).Throws<HttpRequestException>();
+Action parse = () => int.Parse("x");
+Action validate = () => Validate(null!);
+Func<Task> failing = async () => await FailingAsync();
+
+await parse.Should().Throw<FormatException>(); // the type or a subclass; ThrowExactly<T>() for the exact type
+await validate
+    .Should()
+    .Throw<ArgumentNullException>()
+    .WithMessageContaining("(Parameter 'user')");
+await failing.Should().Throw<HttpRequestException>();
+await notes.Should().HaveSingleItem();
+await note.Title.Should().BeEqualTo("Hello").Because("the title is trimmed, not rewritten");
 ```
 
-**`IsEquivalentTo` ignores order by default**: an assertion that a list is sorted passes for any order.  Add `CollectionOrdering.Matching` (`using TUnit.Assertions.Enums;`) whenever order is the point; a test of sorting that cannot fail is worse than none.
+**`BeEquivalentTo` ignores order by default**: an assertion that a list is sorted passes for any order.  Add `CollectionOrdering.Matching` (`using TUnit.Assertions.Enums;`) whenever order is the point; a test of sorting that cannot fail is worse than none.
 
-`IsEqualTo` uses `Equals`/`==`: records and structs get value equality for free.  Message matchers: `WithMessage` (exact), `WithMessageContaining`, `WithMessageNotContaining`, `WithMessageMatching` (regex), `.IgnoringCase()`.
+`BeEqualTo` uses `Equals`/`==`: records and structs get value equality for free.  Message matchers (after `Throw<T>()`): `WithMessage` (exact), `WithMessageContaining`, `WithMessageNotContaining`, `WithMessageMatching` (a wildcard pattern).  There is no `WithParameterName`: match `(Parameter 'name')` in the message.
+
+**Not available on `Should()`**: `IsPositive()` (use `BeGreaterThan(0)`), `IsEqualTo(x).Within(t)` (use `BeCloseTo(x, t)`), and the generic `IsTypeOf<T>()` (use `BeOfType(typeof(T))`).  For anything missing, `Assert.That(...)` still works in the same file.
 
 ## xUnit to TUnit
 
@@ -127,7 +144,7 @@ await Assert.That(async () => await FailingAsync()).Throws<HttpRequestException>
 | `IAsyncLifetime` | `[Before(Test)]` / `[After(Test)]` (async-native) |
 | `IClassFixture<T>` | `[ClassDataSource<T>(Shared = SharedType.PerClass)]` |
 | shared across the run | `[ClassDataSource<T>(Shared = SharedType.PerTestSession)]` |
-| `Assert.Equal(expected, actual)` | `await Assert.That(actual).IsEqualTo(expected)` |
-| `Assert.Throws<T>(() => ...)` | `await Assert.That(() => ...).Throws<T>()` |
+| `Assert.Equal(expected, actual)` | `await actual.Should().BeEqualTo(expected)` |
+| `Assert.Throws<T>(() => ...)` | `Action act = () => ...;` then `await act.Should().Throw<T>()` |
 | `ITestOutputHelper` | `TestContext` method parameter, `.Output` |
 | `dotnet test --filter "Category=X"` | `--treenode-filter "/*/*/*/*[Category=X]"` |

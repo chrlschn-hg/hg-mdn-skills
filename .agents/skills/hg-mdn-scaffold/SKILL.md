@@ -15,7 +15,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI, Development only
 - Testcontainers (<https://dotnet.testcontainers.org/>): integration test infrastructure
 - One container image: the runtime serves the built front-end at `/` and the API under `/api`; the build stamps the version and commit the app reports
-- TUnit (<https://tunit.dev/llms.txt>) on Microsoft Testing Platform (<https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-intro>) for tests; **never xUnit**
+- TUnit (<https://tunit.dev/llms.txt>) on Microsoft Testing Platform (<https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-intro>) for tests, asserting with the `Should()` syntax (`TUnit.Assertions.Should`, a beta package); **never xUnit**
 - CSharpier for C#; `oxlint` and `oxfmt` (<https://oxc.rs/llms.txt>) for the front-end
 
 ## When to Use
@@ -100,7 +100,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Skip if the user uses neither devcontainers nor Codespaces
 6. Set up the .NET web API (templates: `references/backend-templates.md`, `references/data-templates.md`)
   - Create `src/app/src/api/` first (the template's `README.txt`): the build writes the OpenAPI document there
-  - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need); shared properties in `src/backend/Directory.Build.props`
+  - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need); shared properties in `src/backend/Directory.Build.props`; `src/backend/Directory.Build.targets` adds the `Should()` assertion package to every project that references `TUnit`
   - Layout under `src/backend`, every project in `<project>.slnx` (folders mirror directories):
     - `runtime/<PROJECT>.Runtime.csproj`: the web host; keep it lean, business logic goes in feature packages; one `ProjectReference` per slice; writes OpenAPI (path relative to the csproj directory) and serves Scalar in Development
     - `packages/<PROJECT>.Config` (`AppSettings.cs`: the strongly typed `public record class` settings), `.Api` (endpoint contracts, discovery, `Security/`, `SpaSetup`), `.Telemetry`

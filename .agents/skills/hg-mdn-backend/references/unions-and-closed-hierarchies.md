@@ -60,7 +60,7 @@ public sealed class NoteKeysTests
 
         var parsed = NoteKeys.Parse(id.ToString());
 
-        await Assert.That(parsed.Value).IsEqualTo(id);
+        await parsed.Value.Should().BeEqualTo(id);
     }
 
     [Test]
@@ -71,7 +71,7 @@ public sealed class NoteKeysTests
         var parsed = NoteKeys.Parse(text);
 
         // `is` on a union tests the contents, so patterns read like the case they match.
-        await Assert.That(parsed is ShortId(var value) && value == text).IsTrue();
+        await (parsed is ShortId(var value) && value == text).Should().BeTrue();
     }
 
     [Test]
@@ -82,7 +82,7 @@ public sealed class NoteKeysTests
     {
         var parsed = NoteKeys.Parse(text);
 
-        await Assert.That(parsed.Value).IsTypeOf<InvalidKey>();
+        await parsed.Value.Should().BeOfType(typeof(InvalidKey));
     }
 }
 ```
@@ -243,8 +243,8 @@ public sealed class NoteCreatorTests
         );
 
         // Narrow with a pattern, then assert on the payload.
-        await Assert.That(outcome is Note { Title: "Hello" }).IsTrue();
-        await Assert.That(store.Notes).HasSingleItem();
+        await (outcome is Note { Title: "Hello" }).Should().BeTrue();
+        await store.Notes.Should().HaveSingleItem();
     }
 
     [Test]
@@ -261,8 +261,8 @@ public sealed class NoteCreatorTests
             CancellationToken.None
         );
 
-        await Assert.That(outcome.Value).IsEqualTo(new NotebookNotFound(missing));
-        await Assert.That(store.Notes).IsEmpty();
+        await outcome.Value.Should().BeEqualTo(new NotebookNotFound(missing));
+        await store.Notes.Should().BeEmpty();
     }
 
     [Test]
@@ -277,8 +277,8 @@ public sealed class NoteCreatorTests
 
         var badRequest = result.Result as BadRequest<ApiError>;
 
-        await Assert.That(badRequest).IsNotNull();
-        await Assert.That(badRequest!.Value!.Code).IsEqualTo("title_too_long");
+        await badRequest.Should().NotBeNull();
+        await badRequest!.Value!.Code.Should().BeEqualTo("title_too_long");
     }
 }
 ```
@@ -398,7 +398,7 @@ public sealed class RenameNotebookTests(PgDatabaseFixture pg) : PgTransactionalT
             CancellationToken.None
         );
 
-        await Assert.That(outcome.Value).IsEqualTo(new NameTaken(notebooks[0].Name));
+        await outcome.Value.Should().BeEqualTo(new NameTaken(notebooks[0].Name));
     }
 
     [Test]
@@ -409,7 +409,7 @@ public sealed class RenameNotebookTests(PgDatabaseFixture pg) : PgTransactionalT
 
         var outcome = await store.RenameNotebookAsync(missing, "Anything", CancellationToken.None);
 
-        await Assert.That(outcome.Value).IsEqualTo(new NotebookNotFound(missing));
+        await outcome.Value.Should().BeEqualTo(new NotebookNotFound(missing));
     }
 }
 ```
@@ -532,4 +532,4 @@ Do not:
 | `CS9382` | a subtype of a closed type in another assembly | add the subtype beside the base, or use a union |
 | `;` expected on `outer: ...`, `union` | CSharpier older than 1.4.0 | pin CSharpier 1.4.0 or newer |
 
-Assert on a union through `outcome.Value`: TUnit's `IsTypeOf<T>()` and `IsEqualTo(...)` work on it as on any `object?`.
+Assert on a union through `outcome.Value`: `BeOfType(typeof(T))` and `BeEqualTo(...)` work on it as on any `object?`.
