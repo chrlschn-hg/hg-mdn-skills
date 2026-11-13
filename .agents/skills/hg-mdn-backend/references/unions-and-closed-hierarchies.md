@@ -54,7 +54,7 @@ namespace <PROJECT>.Notes.Tests;
 public sealed class NoteKeysTests
 {
     [Test]
-    public async Task Uuid_IsAGuidCase()
+    public async Task Parse_UuidText_ReturnsGuidValue()
     {
         var id = Guid.CreateVersion7();
 
@@ -66,7 +66,7 @@ public sealed class NoteKeysTests
     [Test]
     [Arguments("Ab3dEf")]
     [Arguments("x")]
-    public async Task ShortText_IsAShortIdCase(string text)
+    public async Task Parse_ShortIdText_ReturnsShortIdValue(string text)
     {
         var parsed = NoteKeys.Parse(text);
 
@@ -78,7 +78,7 @@ public sealed class NoteKeysTests
     [Arguments(null)]
     [Arguments("")]
     [Arguments("not a key, and far too long")]
-    public async Task Anything_Else_IsInvalid_NeverAnException(string? text)
+    public async Task Parse_UnsupportedText_ReturnsInvalidKeyWithoutException(string? text)
     {
         var parsed = NoteKeys.Parse(text);
 
@@ -231,7 +231,7 @@ namespace <PROJECT>.Notes.Tests;
 public sealed class NoteCreatorTests
 {
     [Test]
-    public async Task ValidRequest_ReturnsTheStoredNote()
+    public async Task CreateAsync_ValidRequest_ReturnsStoredNote()
     {
         var store = new FakeNoteStore();
 
@@ -248,7 +248,7 @@ public sealed class NoteCreatorTests
     }
 
     [Test]
-    public async Task UnknownNotebook_IsAnOutcome_NotAnException()
+    public async Task CreateAsync_UnknownNotebook_ReturnsNotFoundOutcome()
     {
         TestBiome.Start(out _).AddNotebook(out var notebook);
         var store = new FakeNoteStore().AddNotebooks(notebook);
@@ -266,7 +266,7 @@ public sealed class NoteCreatorTests
     }
 
     [Test]
-    public async Task Handler_MapsTitleTooLong_ToBadRequestWithItsCode()
+    public async Task HandleAsync_OverlongTitle_ReturnsBadRequestWithTitleTooLongCode()
     {
         var handler = new CreateNoteHandler(new NoteCreator(new FakeNoteStore()));
 
@@ -387,7 +387,7 @@ namespace <PROJECT>.Data.Tests;
 public sealed class RenameNotebookTests(PgDatabaseFixture pg) : PgTransactionalTestBase(pg)
 {
     [Test]
-    public async Task Rename_ToATakenName_IsAnOutcome_NotADbUpdateException()
+    public async Task RenameNotebookAsync_TakenName_ReturnsNameTakenOutcome()
     {
         await TestBiome.Start(_context, out _).AddNotebooks(out var notebooks, 2).BuildAsync();
         var store = new NoteStore(_context);
@@ -402,7 +402,7 @@ public sealed class RenameNotebookTests(PgDatabaseFixture pg) : PgTransactionalT
     }
 
     [Test]
-    public async Task Rename_MissingNotebook_IsAnOutcome()
+    public async Task RenameNotebookAsync_MissingNotebook_ReturnsNotFoundOutcome()
     {
         var store = new NoteStore(_context);
         var missing = Guid.NewGuid();

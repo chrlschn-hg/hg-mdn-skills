@@ -76,7 +76,7 @@ MTP exit codes: `0` success, `2` test failure, `5` zero tests ran (<https://aka.
 
 ## Naming and shape
 
-- Name tests `EntityOrScope_StateUnderTest_ExpectedBehavior`: `CreateNote_WithBlankTitle_ReturnsBadRequest`, `Note_List_ReturnsNewestFirst`.  The name alone should say what broke.
+- Name tests `UnitUnderTest_StateUnderTest_ExpectedBehavior`, with exactly two underscores and PascalCase in each part.  For example, `Add_MaximumSumResult_ThrowsOverflowException`.  The name alone should say what broke.
 - **High signal, low noise.**  Assert what the test is about; do not pad with unrelated checks or re-verify what another test covers.
 - **Test invariants**, not implementation: "a saved note round-trips", not "the store called `SaveChanges` once".  No call-count assertions on internals.
 - **Name the invariant in a comment** at the top of a non-obvious test (`// Guards that a blank title is rejected before the store is touched`).

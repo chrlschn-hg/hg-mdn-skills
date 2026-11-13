@@ -21,14 +21,14 @@ public sealed class TUnitProbeTests
     [Test]
     [Arguments("a", 1)]
     [Arguments("bb", 2)]
-    public async Task Length_OfInput_MatchesExpected(string input, int expected)
+    public async Task Length_InputString_ReturnsExpectedLength(string input, int expected)
     {
         await Assert.That(input.Length).IsEqualTo(expected);
     }
 
     [Test]
     [MethodDataSource(nameof(Titles))]
-    public async Task Trim_RemovesWhitespace(string raw, string expected)
+    public async Task Trim_WhitespaceAroundText_ReturnsTrimmedText(string raw, string expected)
     {
         await Assert.That(raw.Trim()).IsEqualTo(expected);
     }
@@ -40,7 +40,7 @@ public sealed class TUnitProbeTests
     }
 
     [Test]
-    public async Task Assertions_CombineAndCollect()
+    public async Task Assert_CombinedAndMultipleChecks_Pass()
     {
         var value = 3;
 
@@ -54,7 +54,7 @@ public sealed class TUnitProbeTests
     }
 
     [Test]
-    public async Task Exceptions_AreAsserted()
+    public async Task Assert_SynchronousAndAsynchronousExceptions_MatchExpectedTypeAndMessage()
     {
         await Assert.That(() => int.Parse("nope")).Throws<FormatException>();
         await Assert
@@ -65,7 +65,7 @@ public sealed class TUnitProbeTests
 
     [Test]
     [Explicit]
-    public async Task Explicit_Test_RunsOnlyWhenTargeted()
+    public async Task ExplicitTest_NameFilteredRun_Runs()
     {
         // [Explicit]: skipped by a normal run; run it by filtering for it by name.
         var ran = true;
@@ -75,7 +75,7 @@ public sealed class TUnitProbeTests
 
     [Test]
     [NotInParallel]
-    public async Task Serial_Test()
+    public async Task NotInParallelAttribute_MarkedTest_Runs()
     {
         var ran = true;
 
@@ -91,7 +91,7 @@ public sealed class TUnitProbeTests
 - `.And` / `.Or` chains cannot be mixed in one chain (`MixedAndOrAssertionsException`); split into separate `Assert.That` calls.
 - `Assert.Multiple()` collects every failure instead of stopping at the first.
 - Skipping: `[Skip("reason")]`; subclass `SkipAttribute` for conditional skips (for example infrastructure tests that cannot run in CI).
-- `[Explicit]` excludes a test from normal runs; it runs only when a filter targets it by name (`--treenode-filter "/*/*/*/Explicit_Test_RunsOnlyWhenTargeted"`).  Use it for slow, costly, or environment-dependent checks (a probe against a live service).
+- `[Explicit]` excludes a test from normal runs; it runs only when a filter targets it by name (`--treenode-filter "/*/*/*/ExplicitTest_NameFilteredRun_Runs"`).  Use it for slow, costly, or environment-dependent checks (a probe against a live service).
 - `TestContext` as a method parameter gives output (`context.Output.WriteLine`), the test name, and properties.
 
 ## Assertions

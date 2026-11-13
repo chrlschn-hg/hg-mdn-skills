@@ -162,7 +162,7 @@ public sealed class TypedIdGeneratorTests
         );
 
     [Test]
-    public async Task Generates_ACompilingTypedId()
+    public async Task TypedIdGenerator_AnnotatedStruct_GeneratesCompilingTypedId()
     {
         var compilation = Compile(
             """
@@ -191,7 +191,7 @@ public sealed class TypedIdGeneratorTests
     }
 
     [Test]
-    public async Task UnrelatedEdits_AreServedFromTheCache()
+    public async Task TypedIdGenerator_UnrelatedSyntaxEdit_ReusesCachedOutput()
     {
         var compilation = Compile("[<PROJECT>.TypedId] public readonly partial record struct NoteId;");
         GeneratorDriver driver = CSharpGeneratorDriver.Create(

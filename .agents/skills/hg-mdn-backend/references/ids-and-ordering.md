@@ -330,14 +330,14 @@ public static class RowRank
 
 | Test | Proves |
 |---|---|
-| `New_HasTheConfiguredShape`, `..NeverContainsAVowel..`, `..NeverContainsALookalike..`, `..UsesBothDigitsAndLetters`, `..IsUniqueAcrossAManySamples` | length, alphabet, no vowels, no `0 1 o l i y`, digits and letters both appear, 50,000 samples without a duplicate |
-| `IsValid_AcceptsDigitsAndLetters`, `IsValid_RejectsAnythingElse` | the shape check: wrong length, capitals, a vowel, a lookalike, a symbol, `null` |
-| `InsertWithFreshId_*` | a collision retries with another id; gives up after the last attempt; other failures are not retried |
-| `PublicId_IsUniqueByIndex_AndTheCollisionIsRecognizable` | the unique index rejects a duplicate, and the predicate recognizes it (SQLSTATE and index name) |
-| `Add_RetriesWhenTheUniqueIndexRejectsTheId` | a real collision, then a retry that succeeds, inside a transaction |
-| `Moving_ARow_UpdatesExactlyThatRow_AndTheOrderFollows` | a move writes one row and the list order follows |
-| `Ranks_AreComparedOrdinally_NotByTheDatabasesLocale` | with `UseCollation("C")` `B` sorts before `a`; without it the test fails |
-| `EqualRanks_AreOrderedByTheV7Id_SoTheOrderIsStable` | equal ranks fall back to the time-ordered id |
-| `Spread_*`, `Between_*`, `InsertingAtTheSameSpotAgainAndAgain_*` | even short ranks; neighbors respected; growth at a hot spot, then a rebalance that shortens them |
+| `New_ConfiguredIdFormat_ReturnsMatchingShape`, `New_GeneratedId_ContainsNoVowels`, `New_GeneratedId_ContainsNoLookalikes`, `New_GeneratedId_UsesLettersAndDigits`, `New_LargeSample_HasNoDuplicates` | length, alphabet, no vowels, no `0 1 o l i y`, digits and letters both appear, 50,000 samples without a duplicate |
+| `IsValid_LettersAndDigits_AcceptsId`, `IsValid_InvalidInput_RejectsId` | the shape check: wrong length, capitals, a vowel, a lookalike, a symbol, `null` |
+| ID insertion retry cases | a collision retries with another id; gives up after the last attempt; other failures are not retried |
+| `UniqueIndexPredicate_UniqueIndexCollision_RecognizesSqlStateAndIndexName` | the unique index rejects a duplicate, and the predicate recognizes it (SQLSTATE and index name) |
+| `Add_UniqueIndexCollision_RetriesWithFreshId` | a real collision, then a retry that succeeds, inside a transaction |
+| `Move_RankChange_UpdatesOneRowAndListOrder` | a move writes one row and the list order follows |
+| `RankComparison_CCollation_SortsOrdinally` | with `UseCollation("C")` `B` sorts before `a`; without it the test fails |
+| `RowOrdering_EqualRanks_UsesV7IdTieBreaker` | equal ranks fall back to the time-ordered id |
+| Rank spreading, midpoint, and repeated insertion tests | even short ranks; neighbors respected; growth at a hot spot, then a rebalance that shortens them |
 
 **Assert order with `IsEquivalentTo(expected, CollectionOrdering.Matching)`.**  Plain `IsEquivalentTo` ignores order, so an assertion that "the list is in order" passes for any order (`tunit.md`).

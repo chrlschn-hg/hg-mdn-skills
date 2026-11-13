@@ -256,9 +256,9 @@ Assert the **status code** and, for ordering, a side effect (a response header) 
     ];
 ```
 
-- `EveryRoute_RequiresAuthorization_OrIsExplicitlyAnonymous` fails if a route has neither authorization nor an explicit opt-out.
-- `AnonymousRoutes_AreExactlyTheReviewedOnes` fails when the anonymous set differs from the list.
-- `TheLintSeesTheRealRoutes` guards the lint itself: an empty route list would make the other two pass for nothing.
+- `RouteLinter_ApplicationRoutes_EnforcesAuthorizationOrAnonymity` fails if a route has neither authorization nor an explicit opt-out.
+- `RouteLinter_AnonymousRoutes_MatchReviewedSet` fails when the anonymous set differs from the list.
+- `RouteLinter_RealRoutes_IncludesHealthAndMe` guards the lint itself: an empty route list would make the other two pass for nothing.
 - The test project references the runtime, so endpoint discovery sees every slice; keep its `Map<PROJECT>Endpoints(...)` prefix the same as `Program.cs`.
 
 ## Status codes at a glance

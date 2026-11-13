@@ -45,10 +45,10 @@ app.Map<PROJECT>SpaFallback();
 
 | Test | Proves |
 |---|---|
-| `Root_ServesIndexHtml_AndRevalidates`, `ClientSideRoute_ServesIndexHtml`, `ClientRouteUnderAssets_IsIndexHtml_AndRevalidated` | `/`, `/notes/123`, and `/assets/overview` answer `index.html` with `no-cache` |
-| `HashedAsset_IsCachedForever`, `OtherFiles_AreRevalidated` | the cache headers |
-| `MissingAsset_Is404_NotIndexHtml` | the `nonfile` constraint (with it removed this and `HashedAsset_IsCachedForever` fail) |
-| `UnknownApiRoute_Is404Json_NotIndexHtml`, `ApiRoutes_KeepTheirSecurity` | the SPA does not swallow the API: a typo is a JSON 404, secured routes still answer 401 |
-| `WithoutABuiltFrontEnd_NothingIsServed` | no `index.html` in the web root: nothing is served, the API still works |
+| `SpaRoot_ValidRequest_ReturnsIndexHtmlWithNoCache`, `SpaFallback_ClientRoute_ReturnsIndexHtmlWithNoCache`, `SpaFallback_AssetsPathRoute_ReturnsIndexHtmlWithNoCache` | `/`, `/notes/123`, and `/assets/overview` answer `index.html` with `no-cache` |
+| `HashedAsset_FingerprintedPath_ReturnsImmutableCacheHeaders`, `StaticFile_NonHashedPath_ReturnsNoCache` | the cache headers |
+| `HashedAsset_StaleChunkPath_ReturnsNotFoundWithoutIndexHtml` | the `nonfile` constraint (with it removed this and `HashedAsset_FingerprintedPath_ReturnsImmutableCacheHeaders` fail) |
+| `ApiRoute_UnknownPath_ReturnsJsonNotFound`, `ApiGroup_SecuredAndOpenRequests_PreservesAccessRules` | the SPA does not swallow the API: a typo is a JSON 404, secured routes still answer 401 |
+| `SpaHosting_EmptyWebRoot_ServesOnlyTheApi` | no `index.html` in the web root: nothing is served, the API still works |
 
 `build/smoke.sh <base-url> [commit]` checks the same things against a running container (CI runs it on the image it builds; run it against any deployment).  It also asserts the commit the app reports.
