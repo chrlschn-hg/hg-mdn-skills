@@ -1,7 +1,8 @@
 # Aspire Host Templates (step 9)
 
 The Aspire AppHost in `host/`: Postgres, the backend (with the CSharpRepl hook), the Vite front-end,
-Kubb in watch mode, and LibreDB for browsing the database.  Add `host/host.csproj` to the solution.
+Kubb in watch mode, and LibreDB for browsing the database. An optional YARP proxy gives the app one
+local origin. Add `host/host.csproj` to the solution.
 
 Placeholders (`<PROJECT>`, `<project>`, `<BACKEND_API_PORT>`, `<GUID>`, ...): see `SKILL.md`.
 Versions are a snapshot: replace each with the latest stable at scaffold time.
@@ -14,13 +15,23 @@ Notes:
   become underscores.
 - **Ports:** fixed are the backend port (`launchSettings.json`, repeated as the `/api` proxy fallback in `vite.config.ts`; under Aspire the URL is injected) and the
   AppHost's dashboard, OTLP, and resource-service ports in `host/Properties/launchSettings.json`; change
-  them when another AppHost on the machine already uses them.  The front-end and LibreDB ports are assigned
-  by Aspire: never pin them (`aspire describe`).
+  them when another AppHost on the machine already uses them. The front-end and LibreDB ports are assigned
+  by Aspire. The optional app proxy uses port 80 by default; only one checkout can use that port at a time.
 - **Resource names** are a contract (`aspire` commands, AGENTS.md, the backend skill's `references/debugging-aspire.md`):
-  `postgres`, `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`.
-- LibreDB login: `admin@libredb.org` and the `libredb-admin-password` parameter (default `admin`).  The
-  Postgres connection is seeded and managed (locked in the UI).  Seed `${VAR}` values are whole-value
-  substitutions from the container environment; a connection with an undefined variable is skipped.
+  `postgres`, `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`; `app-proxy` appears when enabled.
+- LibreDB login: `admin@libredb.org` and the generated `libredb-admin-password` parameter in the dashboard's
+  **Parameters** page. The Postgres connection is seeded and managed (locked in the UI).
+- LibreDB is dev-only. It holds database credentials and can modify data. Never expose its port publicly.
+- LibreDB uses a pinned multi-architecture image digest. Look up the current index with
+  `docker buildx imagetools inspect ghcr.io/libredb/libredb-studio:latest` and copy the top-level `Digest` into
+  `WithImageSHA256`; update the pin on purpose.
+- Set `LIBREDB_ALLOWED_ORIGINS` only when a reverse proxy rewrites `Host` and does not send `x-forwarded-host`.
+  Use comma-separated full origins or bare hosts. Leave it unset for the direct Aspire endpoint.
+- Enable the same-origin app proxy with `APP_ORIGIN_PROXY=1`. It routes `/api`, `/scalar`, and `/openapi` to the
+  backend and all other paths to Vite. The dashboard's API reference link follows the proxy when enabled.
+  The default `http://<project>.localhost` origin uses port 80. Set `APP_ORIGIN_PROXY_PORT` when another checkout
+  needs a different port; the origin then includes that port. In a Linux dev container, add `<project>.localhost`
+  to `/etc/hosts` because Node may not resolve `*.localhost`. Browser-only Codespaces uses the forwarded HTTPS URL.
 - `aspire run` finds the AppHost through `host/aspire.config.json`; run it from the repo root.
 - Aspire prompts for parameters it has no value for; the defaults here are local-development values only.
 
@@ -44,6 +55,7 @@ Notes:
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.5" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
+    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.6.5" />
   </ItemGroup>
 </Project>
 ```
@@ -64,7 +76,31 @@ Notes:
 // Aspire host: orchestrates the local runtime.  Anything the app needs to run locally
 // (databases, emulators, the front-end, code generation) is registered here.
 // Docs: https://aspire.dev/llms.txt   Start: `mise run up`   Stop: `mise run down`
+using Aspire.Hosting.Yarp;
+using Aspire.Hosting.Yarp.Transforms;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// Opt in when the app needs a stable same-origin URL. Port 80 is shared across checkouts.
+var useAppOriginProxy = builder.Configuration["APP_ORIGIN_PROXY"] == "1";
+var appOriginProxyPort = int.TryParse(
+    builder.Configuration["APP_ORIGIN_PROXY_PORT"],
+    out var configuredAppOriginProxyPort
+)
+    ? configuredAppOriginProxyPort
+    : 80;
+string? appOrigin = null;
+if (useAppOriginProxy)
+{
+    var portSuffix = appOriginProxyPort == 80 ? "" : $":{appOriginProxyPort}";
+    appOrigin = $"http://<project>.localhost{portSuffix}";
+    if (builder.Configuration["CODESPACE_NAME"] is { Length: > 0 } codespaceName)
+    {
+        var domain = builder.Configuration["GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN"]
+            ?? "app.github.dev";
+        appOrigin = $"https://{codespaceName}-{appOriginProxyPort}.{domain}";
+    }
+}
 
 // Postgres; fixed credentials are for local development only.
 var username = builder.AddParameter("username", "<project>", secret: true);
@@ -72,7 +108,8 @@ var password = builder.AddParameter("password", "P@ssw0rd", secret: true);
 var postgres = builder
     .AddPostgres("postgres", userName: username, password: password)
     .WithVolume("<project>-pg-data", "/var/lib/postgresql")
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithRepl();
 
 // The resource name is the connection string name the backend reads (`DataSetup.ConnectionStringName`).
 var db = postgres.AddDatabase("<project>");
@@ -81,7 +118,12 @@ var db = postgres.AddDatabase("<project>");
 var backend = builder
     .AddProject<Projects.<PROJECT>_Runtime>("app-backend")
     .WaitFor(db)
-    .WithReference(db);
+    .WithReference(db)
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.DisplayText = "API reference (Scalar)";
+        url.Url = appOrigin is null ? "/scalar" : $"{appOrigin}/scalar";
+    });
 
 if (builder.ExecutionContext.IsRunMode)
 {
@@ -112,35 +154,76 @@ builder
     )
     .WaitFor(frontend);
 
+// A single browser origin matches the production layout. Vite remains available for HMR.
+if (useAppOriginProxy)
+{
+    frontend.WithUrl(appOrigin!, "App (<project>.localhost)");
+    string[] backendPaths =
+    [
+        "/api/{**catch-all}",
+        "/scalar/{**catch-all}",
+        "/openapi/{**catch-all}",
+    ];
+    builder
+        .AddYarp("app-proxy")
+        .WithHostPort(appOriginProxyPort)
+        .WithEndpoint("http", endpoint => endpoint.IsProxied = false)
+        .WithConfiguration(yarp =>
+        {
+            var backendCluster = yarp.AddCluster(backend.GetEndpoint("http"));
+            foreach (var path in backendPaths)
+            {
+                yarp.AddRoute(path, backendCluster).WithTransformUseOriginalHostHeader();
+            }
+            yarp.AddRoute("/{**catch-all}", frontend.GetEndpoint("http"))
+                .WithTransformUseOriginalHostHeader();
+        });
+}
+
 // LibreDB (database UI).  Open the "libredb" resource endpoint in the Aspire dashboard.
 //   Login:    admin@libredb.org
-//   Password: the `libredb-admin-password` parameter (default below; override in AppHost user-secrets)
-// The Postgres connection is seeded from `libredb/seed-connections.yaml` (managed; no setup in the UI).
-var libredbPassword = builder.AddParameter("libredb-admin-password", "admin", secret: true);
+//   Password: the generated `libredb-admin-password` parameter (dashboard > Parameters)
+// The connection is seeded from `libredb/seed-connections.yaml`; SQLite stores saved queries and history.
+var libredbPassword = builder.AddParameter(
+    "libredb-admin-password",
+    new GenerateParameterDefault { MinLength = 20, Special = false },
+    secret: true,
+    persist: true
+);
 var libredbJwtSecret = builder.AddParameter(
     "libredb-jwt-secret",
-    "local-dev-only-jwt-secret-min-32-chars!!",
-    secret: true
+    new GenerateParameterDefault { MinLength = 48, Special = false },
+    secret: true,
+    persist: true
 );
 
-builder
-    .AddContainer("libredb", "ghcr.io/libredb/libredb-studio", "latest")
-    .WithHttpEndpoint(targetPort: 3000, name: "http") // host port assigned by Aspire; see the dashboard
+var libredb = builder
+    .AddContainer("libredb", "ghcr.io/libredb/libredb-studio")
+    .WithImageSHA256("3521f28fc2732a040715015669dfb475a1f2bc60b31025cb58ef472379ca74c7") // multi-arch index, checked 2026-11-13
+    .WithHttpEndpoint(targetPort: 3000, name: "http")
     .WithEnvironment("ADMIN_EMAIL", "admin@libredb.org")
     .WithEnvironment("ADMIN_PASSWORD", libredbPassword)
     .WithEnvironment("JWT_SECRET", libredbJwtSecret)
-    // The seed file interpolates `${VAR}` from the environment (whole values only).
+    .WithEnvironment("AUTH_BOOTSTRAP", "off")
+    .WithEnvironment("AUTH_COOKIE_SECURE", "false")
     .WithEnvironment("SEED_CONFIG_PATH", "/app/config/seed-connections.yaml")
-    .WithEnvironment("PG_HOST", postgres.Resource.Name) // container-to-container: the resource name is the hostname
-    .WithEnvironment("PG_DATABASE", "<project>")
-    .WithEnvironment("PG_USER", username)
-    .WithEnvironment("PG_PASSWORD", password)
+    .WithEnvironment("APP_DB_URI", db.Resource.UriExpression)
+    .WithEnvironment("STORAGE_PROVIDER", "sqlite")
+    .WithEnvironment("STORAGE_SQLITE_PATH", "/app/data/libredb-storage.db")
     .WithBindMount(
         "./libredb/seed-connections.yaml",
         "/app/config/seed-connections.yaml",
         isReadOnly: true
     )
+    .WithParentRelationship(db)
     .WaitFor(db);
+libredb.WithVolume(VolumeNameGenerator.Generate(libredb, "data"), "/app/data");
+
+// LibreDB checks the request origin against Host. Set this only when a proxy rewrites Host and drops x-forwarded-host.
+if (builder.Configuration["LIBREDB_ALLOWED_ORIGINS"] is { Length: > 0 } allowedOrigins)
+{
+    libredb.WithEnvironment("ALLOWED_ORIGINS", allowedOrigins);
+}
 
 builder.Build().Run();
 ```
@@ -249,19 +332,14 @@ internal static class ProcessUtils
 
 ```yaml
 # LibreDB seed connections (https://github.com/libredb/libredb-studio/blob/main/docs/SEED_CONNECTIONS.md)
-# Mounted by host/AppHost.cs.  `${VAR}` values are whole-value substitutions from the container
-# environment; a connection with an undefined variable is skipped.
+# Mounted by host/AppHost.cs. Aspire supplies the Postgres URI over the container network.
 version: "1"
 
 connections:
   - id: "<project>-local"
-    name: "<PROJECT> (local Postgres)"
+    name: "<PROJECT> local Postgres"
     type: postgres
-    host: "${PG_HOST}"
-    port: 5432
-    database: "${PG_DATABASE}"
-    user: "${PG_USER}"
-    password: "${PG_PASSWORD}"
+    connectionString: "${APP_DB_URI}"
     environment: local
     roles: ["admin", "user"]
     managed: true

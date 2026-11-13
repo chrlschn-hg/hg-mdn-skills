@@ -314,7 +314,9 @@ mise run down
 mise run check
 ```
 
-Open the Aspire dashboard (URL printed by `aspire run`) for the front-end, API docs (Scalar), and database UI links.
+Open the Aspire dashboard (URL printed by `aspire run`) for the Vite, Scalar, and LibreDB links. Set
+`APP_ORIGIN_PROXY=1` before `mise run up` to serve the SPA and API at `http://<project>.localhost`.
+The proxy uses port 80 by default, so only one checkout can use that origin at a time.
 
 ## Container
 

@@ -35,7 +35,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - For setup not documented here, follow the technology's docs (look for `llms.txt`)
 - XML sections in this document are blocks that appear elsewhere in it
 - Full file templates live in `references/`; each step names the file.  Create the files from the templates, replace the placeholders, adjust to the user's answers.  Do not invent a different layout
-- Ports: pin only the backend port; Aspire assigns the front-end and LibreDB ports (`aspire describe`).  The AppHost's dashboard, OTLP, and resource-service ports are fixed in `host/Properties/launchSettings.json`: change them if they collide (`references/aspire-host.md`)
+- Ports: pin only the backend port; Aspire assigns the front-end and LibreDB ports (`aspire describe`). The optional app proxy uses port 80 by default; set `APP_ORIGIN_PROXY_PORT` to use another port (`references/aspire-host.md`)
 - Do not commit or push unless the user asks
 - Leave terse, direct comments in the artifacts: the reasoning, where related files are, links
 </rules>
@@ -133,7 +133,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - `AGENTS.md` ("API generation") already states the flow C# endpoints -> OpenAPI document -> Kubb; confirm it matches
 9. Set up Aspire with C# (templates: `references/aspire-host.md`)
   - `host/` holds the AppHost; add it to the `.slnx`
-  - Resources, whose names are a contract for the `aspire` commands and the skills: `postgres` (with its database), `app-backend`, `app-frontend` (Vite; match `WithNpm()` to the package manager; `.WithReference(backend)` gives its `/api` proxy the backend URL), `kubb-generate-watch`, `libredb` (database UI with a seeded connection; comment how to log in)
+  - Resources, whose names are a contract for the `aspire` commands and the skills: `postgres` (with its database and psql REPL), `app-backend` (dashboard link to Scalar), `app-frontend` (Vite; match `WithNpm()` to the package manager; `.WithReference(backend)` gives its `/api` proxy the backend URL), `kubb-generate-watch`, `libredb` (database UI with a seeded connection); optional `app-proxy` gives the app one origin
   - Aspire CLI: `aspire --version` in the same version line as the host SDK
   - Agent skills: `aspire agent init --skill-locations standard --skills aspire-orchestration,aspire-monitoring` (flags per `aspire agent init --help`; if a name is rejected, choose the orchestration and monitoring skills in the prompt)
   - `AGENTS.md` already carries the core Aspire commands and the rule that new runtime components are plugged into `host/AppHost.cs`; confirm

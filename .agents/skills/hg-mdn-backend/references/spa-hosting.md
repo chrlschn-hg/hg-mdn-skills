@@ -9,6 +9,7 @@ One image, one origin.  The Docker build copies the front-end's `dist/` into the
 | Fallback | `Map<PROJECT>SpaFallback()` | `/` and any path that is not a file: answer `index.html`, the client router takes over |
 | Image | `build/Dockerfile` | a Node stage builds `dist/`, the .NET stage copies it to `wwwroot` and publishes |
 | Development | Vite `server.proxy` | the browser talks to Vite; `/api` is forwarded to the backend |
+| Optional same-origin development | YARP in the AppHost | routes `/api`, `/scalar`, and `/openapi` to the backend and the rest to Vite (`hg-mdn-scaffold`, `references/aspire-host.md`) |
 
 `SpaSetup.cs` is in `hg-mdn-scaffold`, `references/backend-templates.md`.  The pipeline in `Program.cs` (`composition-root.md`) is also the order that matters (static files before request logging and security; the fallback after the API):
 
