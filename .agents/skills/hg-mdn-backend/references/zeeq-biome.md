@@ -216,7 +216,7 @@ public sealed class ListNotesHandlerTests
     }
 
     [Test]
-    public async Task ListNotes_WithNotebookId_ReturnsOnlyThatNotebooksNotes()
+    public async Task ListNotes_NotebookIdSpecified_ReturnsMatchingNotes()
     {
         // Three notes in the first notebook, two in a second one.
         _start
@@ -236,7 +236,7 @@ public sealed class ListNotesHandlerTests
     }
 
     [Test]
-    public async Task ListNotes_WithoutNotebookId_ReturnsEveryNote()
+    public async Task ListNotes_NoNotebookId_ReturnsEveryNote()
     {
         // Notes in two notebooks (fan-out: three per parent) and one that is filed nowhere.
         TestBiome
@@ -260,7 +260,7 @@ public sealed class ListNotesHandlerTests
 
 ```csharp
 [Test]
-public async Task Note_List_FiltersByNotebook()
+public async Task ListAsync_NotebookIdSpecified_ReturnsMatchingNotes()
 {
     await TestBiome
         .Start(_context, out _)
@@ -287,7 +287,7 @@ One clock per session: `ctx.Now`, `ctx.Ago(...)`, `ctx.FromNow(...)`.  Without a
 
 ```csharp
 [Test]
-public async Task Note_List_ReturnsNewestFirst()
+public async Task ListAsync_DistinctCreatedAtUtc_ReturnsNewestFirst()
 {
     // All notes share one frozen `Now`, so the order under test needs distinct times:
     // `ctx.Ago(...)` needs the context-aware form, which goes through the core `Add`.
@@ -378,7 +378,7 @@ Build an entity with valid defaults without saving it: `.Transient()` right afte
 
 ```csharp
 [Test]
-public async Task Note_Create_FromABiomeInput_RoundTrips()
+public async Task CreateAsync_TransientBiomeInput_PersistsNote()
 {
     // The note is the input of the call under test: built with valid defaults, never saved by
     // the chain (`.Transient()` marks the step above it).

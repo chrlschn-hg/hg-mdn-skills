@@ -61,10 +61,10 @@ Where the version comes from, with the optional release workflow: it computes th
 
 | Test | Proves |
 |---|---|
-| `Parse_SplitsTheVersionFromTheCommit` | `1.4.0-rc.2+<sha>` gives version, full commit, short commit, build time |
-| `Parse_WithoutACommit_ReportsNoCommit`, `Parse_WithoutAVersion_ReportsUnknown`, `Parse_IgnoresATimestampItCannotRead` | missing or malformed stamps degrade instead of throwing |
-| `From_ReadsTheStampOfTheAssemblyTheBuildProduced` | the real attribute is read |
-| `Health_ReportsTheRunningBuild` | the handler maps `BuildInfo` onto the contract |
+| `Parse_VersionWithCommit_SeparatesVersionAndCommit` | `1.4.0-rc.2+<sha>` gives version, full commit, short commit, build time |
+| `Parse_WithoutACommit_ReportsNoCommit`, `Parse_MissingVersion_ReportsUnknownVersion`, `Parse_UnreadableTimestamp_LeavesBuildTimeUnset` | missing or malformed stamps degrade instead of throwing |
+| `From_AssemblyWithBuildStamp_ReturnsBuildVersion` | the real attribute is read |
+| `HealthHandler_BuildInfo_ReturnsRunningBuild` | the handler maps `BuildInfo` onto the contract |
 | `build/smoke.sh <url> <commit>` | a built image reports the commit it was built from (CI passes `$GITHUB_SHA`) |
 
 The OpenAPI document's own `info.version` (`1.0.0`) is the API contract's version, not the application's.

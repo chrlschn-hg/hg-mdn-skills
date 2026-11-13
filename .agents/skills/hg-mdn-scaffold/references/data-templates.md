@@ -368,7 +368,7 @@ public sealed class DateTimeOffsetExtensionsTests
     [Arguments(0L)]
     [Arguments(1L)]
     [Arguments(9L)]
-    public async Task TruncateToPostgresPrecision_DropsSubMicrosecondTicks(long extraTicks)
+    public async Task TruncateToPostgresPrecision_SubMicrosecondTicks_ReturnsAlignedTicks(long extraTicks)
     {
         var value = new DateTimeOffset(MicrosecondAlignedTicks + extraTicks, TimeSpan.Zero);
 
@@ -412,7 +412,7 @@ namespace <PROJECT>.Data.Tests;
 public sealed class DatabaseFixtureTests(PgDatabaseFixture pg) : PgTransactionalTestBase(pg)
 {
     [Test]
-    public async Task Database_Fixture_CanConnect()
+    public async Task DatabaseFixture_StartedPostgres_Connects()
     {
         var canConnect = await _context.Database.CanConnectAsync();
 

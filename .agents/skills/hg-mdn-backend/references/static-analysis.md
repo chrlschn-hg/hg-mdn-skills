@@ -39,7 +39,7 @@ dotnet_diagnostic.CA1822.severity = none
 ```
 
 ```xml
-<!-- Directory.Build.props: test names are Entity_State_Expected; CA1707 forbids the underscores. -->
+<!-- Directory.Build.props: test names use UnitUnderTest_StateUnderTest_ExpectedBehavior; CA1707 forbids the underscores. -->
 <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
   <NoWarn>$(NoWarn);CA1707</NoWarn>
 </PropertyGroup>
@@ -262,7 +262,7 @@ public sealed class HandlerTakesHttpContextAnalyzerTests
         );
 
     [Test]
-    public Task NonHandler_TakingHttpContext_IsNotTheRulesBusiness() =>
+    public Task NonHandler_TakingHttpContext_IsNotReported() =>
         VerifyAsync(
             """
             public sealed class Middleware

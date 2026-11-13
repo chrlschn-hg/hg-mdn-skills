@@ -407,7 +407,7 @@ return notes;
 - Async methods end in `Async`; the cancellation token parameter is `ct`.
 - Interfaces `IThing`; implementations named for the technology or role (`NoteStore`), not `ThingImpl`.
 - Handlers `<Verb><Thing>Handler`; endpoints `<Slice>Endpoints`; stores `<Thing>Store`; settings `<Area>Settings`.
-- Tests `Entity_State_Expected` (`testing.md`).
+- Name tests `UnitUnderTest_StateUnderTest_ExpectedBehavior`, with exactly two underscores and PascalCase in each part.  For example, `Add_MaximumSumResult_ThrowsOverflowException` (`testing.md`).
 - Database objects are `snake_case` (applied by convention); indexes `ix_<table>_<columns>`.
 
 ## Tooling

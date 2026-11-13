@@ -860,7 +860,7 @@ public sealed partial class OpenApiDocumentTests
     private static readonly string[] Methods = ["get", "put", "post", "delete", "patch"];
 
     [Test]
-    public async Task Operations_HaveAnOperationId()
+    public async Task Operations_EveryOperation_HasOperationId()
     {
         var offenders = Operations()
             .Where(op => string.IsNullOrWhiteSpace(op.Id))
@@ -870,7 +870,7 @@ public sealed partial class OpenApiDocumentTests
     }
 
     [Test]
-    public async Task Operations_HaveAShortSummaryEndingInAPeriod()
+    public async Task Operations_EverySummary_EndsWithPeriod()
     {
         var offenders = Operations()
             .Where(op => string.IsNullOrWhiteSpace(op.Summary) || !op.Summary.EndsWith('.'))
@@ -880,7 +880,7 @@ public sealed partial class OpenApiDocumentTests
     }
 
     [Test]
-    public async Task Operations_HaveADescriptionOfOneToSixSentencesInAtMostTwoParagraphs()
+    public async Task Operations_EveryDescription_HasOneToSixSentencesAndAtMostTwoParagraphs()
     {
         var offenders = Operations()
             .Where(op => !IsWellFormedDescription(op.Description))
@@ -1054,7 +1054,7 @@ public sealed class RouteSecurityTests
     }
 
     [Test]
-    public async Task EndpointRoleRequirement_IsLayeredOnTopOfTheGroup()
+    public async Task EndpointRoleRequirement_SignedInUserWithoutRole_ReturnsForbidden()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1071,7 +1071,7 @@ public sealed class RouteSecurityTests
     [Test]
     [Arguments(null, null)]
     [Arguments("ada", "member")]
-    public async Task AdminRoute_ForAnyoneButAnAdmin_LooksLikeItDoesNotExist(
+    public async Task AdminRoute_NonAdminUser_ReturnsNotFound(
         string? user,
         string? roles
     )
@@ -1096,7 +1096,7 @@ public sealed class RouteSecurityTests
     }
 
     [Test]
-    public async Task UnmatchedApiRoute_IsA404ForEveryone_NotA401()
+    public async Task ApiFallback_UnknownPath_ReturnsNotFoundForAnonymousCaller()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1142,7 +1142,7 @@ public sealed class RouteGuardPipelineTests
     ) => ProbeHost.Get(path, user, roles, tenant);
 
     [Test]
-    public async Task RouteGuard_ChecksTheRouteValueAgainstTheClaim()
+    public async Task RouteGuard_MissingOrMismatchedClaim_ReturnsForbidden()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1161,7 +1161,7 @@ public sealed class RouteGuardPipelineTests
     }
 
     [Test]
-    public async Task GroupGuard_RunsBeforeTheEndpointsOwnFilters()
+    public async Task GroupGuard_RejectedRequest_SkipsEndpointFilters()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1180,7 +1180,7 @@ public sealed class RouteGuardPipelineTests
     }
 
     [Test]
-    public async Task Filters_RunInTheOrderTheyAreRegistered()
+    public async Task EndpointFilters_RegistrationOrder_ExecutesInOrder()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1190,7 +1190,7 @@ public sealed class RouteGuardPipelineTests
     }
 
     [Test]
-    public async Task StatefulGuard_ResolvesItsServiceFromDi_AndRunsAfterTheCheapGuard()
+    public async Task StatefulGuard_ClaimForAnotherTenant_ReturnsForbiddenBeforeLookup()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1215,7 +1215,7 @@ public sealed class RouteGuardPipelineTests
     }
 
     [Test]
-    public async Task RouteGuard_AlsoWorksOnASingleRoute()
+    public async Task RouteGuard_SingleRoute_EnforcesTenantClaim()
     {
         await using var host = await ProbeHost.StartAsync();
 
@@ -1355,7 +1355,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task Root_ServesIndexHtml_AndRevalidates()
+    public async Task SpaRoot_ValidRequest_ReturnsIndexHtmlWithNoCache()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1367,7 +1367,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task ClientSideRoute_ServesIndexHtml()
+    public async Task SpaFallback_ClientRoute_ReturnsIndexHtmlWithNoCache()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1379,7 +1379,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task HashedAsset_IsCachedForever()
+    public async Task HashedAsset_FingerprintedPath_ReturnsImmutableCacheHeaders()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1392,7 +1392,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task ClientRouteUnderAssets_IsIndexHtml_AndRevalidated()
+    public async Task SpaFallback_AssetsPathRoute_ReturnsIndexHtmlWithNoCache()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1405,7 +1405,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task OtherFiles_AreRevalidated()
+    public async Task StaticFile_NonHashedPath_ReturnsNoCache()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1416,7 +1416,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task MissingAsset_Is404_NotIndexHtml()
+    public async Task HashedAsset_StaleChunkPath_ReturnsNotFoundWithoutIndexHtml()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1428,7 +1428,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task UnknownApiRoute_Is404Json_NotIndexHtml()
+    public async Task ApiRoute_UnknownPath_ReturnsJsonNotFound()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1442,7 +1442,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task ApiRoutes_KeepTheirSecurity()
+    public async Task ApiGroup_SecuredAndOpenRequests_PreservesAccessRules()
     {
         await using var host = await ProbeHost.StartWithSpaAsync(CreateWebRoot());
 
@@ -1454,7 +1454,7 @@ public sealed class SpaHostingTests
     }
 
     [Test]
-    public async Task WithoutABuiltFrontEnd_NothingIsServed()
+    public async Task SpaHosting_EmptyWebRoot_ServesOnlyTheApi()
     {
         var emptyWebRoot = Directory.CreateTempSubdirectory("<project>-spa-").FullName;
         await using var host = await ProbeHost.StartWithSpaAsync(emptyWebRoot);
@@ -1819,7 +1819,7 @@ public sealed class RouteGuardUnitTests
     }
 
     [Test]
-    public async Task Guard_WhenRouteMatchesClaim_CallsNext()
+    public async Task Guard_RouteClaimMatches_CallsNext()
     {
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: "t1");
 
@@ -1828,7 +1828,7 @@ public sealed class RouteGuardUnitTests
     }
 
     [Test]
-    public async Task Guard_WhenRouteDiffersFromClaim_Forbids_WithoutCallingNext()
+    public async Task Guard_RouteClaimDiffers_ForbidsWithoutCallingNext()
     {
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: "t2");
 
@@ -1837,7 +1837,7 @@ public sealed class RouteGuardUnitTests
     }
 
     [Test]
-    public async Task Guard_WhenTheCallerHasNoClaim_Forbids_NeverAnswers401()
+    public async Task Guard_MissingTenantClaim_ForbidsWithout401()
     {
         // A signed-in caller without the claim: 403.  A 401 would tell the front-end that nobody
         // is signed in and send the user to the login page again.
@@ -1848,7 +1848,7 @@ public sealed class RouteGuardUnitTests
     }
 
     [Test]
-    public async Task Guard_WhenTheRouteHasNoSuchValue_Answers400()
+    public async Task Guard_MissingRouteValue_ReturnsBadRequest()
     {
         var (result, _) = await Run(routeTenant: null, claimTenant: "t1");
 
@@ -2365,7 +2365,7 @@ namespace <PROJECT>.Health.Tests;
 public sealed class HealthHandlerTests
 {
     [Test]
-    public async Task Health_WhenCalled_ReturnsHealthy()
+    public async Task HealthHandler_HealthRequest_ReturnsHealthy()
     {
         var handler = new HealthHandler(new BuildInfo("0.0.0-dev", null, null));
 
@@ -2376,7 +2376,7 @@ public sealed class HealthHandlerTests
     }
 
     [Test]
-    public async Task Health_ReportsTheRunningBuild()
+    public async Task HealthHandler_BuildInfo_ReturnsRunningBuild()
     {
         var builtAt = new DateTimeOffset(2026, 10, 11, 14, 2, 3, TimeSpan.Zero);
         var handler = new HealthHandler(new BuildInfo("1.4.0", "3f2a1bc9d0e8", builtAt));
@@ -2398,7 +2398,7 @@ namespace <PROJECT>.Health.Tests;
 public sealed class BuildInfoTests
 {
     [Test]
-    public async Task Parse_SplitsTheVersionFromTheCommit()
+    public async Task Parse_VersionWithCommit_SeparatesVersionAndCommit()
     {
         var info = BuildInfo.Parse(
             "1.4.0-rc.2+3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff",
@@ -2428,19 +2428,19 @@ public sealed class BuildInfoTests
     [Arguments(null)]
     [Arguments("")]
     [Arguments("+abc")]
-    public async Task Parse_WithoutAVersion_ReportsUnknown(string? informationalVersion)
+    public async Task Parse_MissingVersion_ReportsUnknownVersion(string? informationalVersion)
     {
         await Assert.That(BuildInfo.Parse(informationalVersion, null).Version).IsEqualTo("unknown");
     }
 
     [Test]
-    public async Task Parse_IgnoresATimestampItCannotRead()
+    public async Task Parse_UnreadableTimestamp_LeavesBuildTimeUnset()
     {
         await Assert.That(BuildInfo.Parse("1.0.0", "yesterday-ish").BuiltAtUtc).IsNull();
     }
 
     [Test]
-    public async Task From_ReadsTheStampOfTheAssemblyTheBuildProduced()
+    public async Task From_AssemblyWithBuildStamp_ReturnsBuildVersion()
     {
         // This test assembly was built by the same SDK, so it carries an informational version.
         var info = BuildInfo.From(typeof(BuildInfoTests).Assembly);
@@ -2692,7 +2692,7 @@ public sealed class RouteSecurityLintTests
     }
 
     [Test]
-    public async Task TheLintSeesTheRealRoutes()
+    public async Task RouteLinter_RealRoutes_IncludesHealthAndMe()
     {
         // Guards the lint itself: an empty route list would make the checks below pass vacuously.
         await Assert.That(Routes().Select(r => r.Route)).Contains("GET /api/health");
@@ -2700,7 +2700,7 @@ public sealed class RouteSecurityLintTests
     }
 
     [Test]
-    public async Task EveryRoute_RequiresAuthorization_OrIsExplicitlyAnonymous()
+    public async Task RouteLinter_ApplicationRoutes_EnforcesAuthorizationOrAnonymity()
     {
         var offenders = Routes().Where(r => !r.Secured && !r.Anonymous).Select(r => r.Route);
 
@@ -2708,7 +2708,7 @@ public sealed class RouteSecurityLintTests
     }
 
     [Test]
-    public async Task AnonymousRoutes_AreExactlyTheReviewedOnes()
+    public async Task RouteLinter_AnonymousRoutes_MatchReviewedSet()
     {
         var anonymous = Routes().Where(r => r.Anonymous).Select(r => r.Route);
 
