@@ -12,7 +12,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - Mise (<https://mise.jdx.dev/llms.txt>): runtime dependencies (SDKs, CLIs, tools) and tasks (`mise run <task>`)
 - Aspire (<https://aspire.dev/llms.txt>): local orchestration of containers and system dependencies (Postgres, SQL Server, Redis, emulators, runtime commands, package installs)
 - Kubb.dev (<https://kubb.dev/llms.txt>): TypeScript client and Zod schemas from the OpenAPI document the backend build writes
-- Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI, Development only
+- Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI at `/scalar`, Development only, set up beside the OpenAPI document in `OpenApiSetup`
 - Testcontainers (<https://dotnet.testcontainers.org/>): integration test infrastructure
 - One container image: the runtime serves the built front-end at `/` and the API under `/api`; the build stamps the version and commit the app reports
 - TUnit (<https://tunit.dev/llms.txt>) on Microsoft Testing Platform (<https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-intro>) for tests, asserting with the `Should()` syntax (`TUnit.Assertions.Should`, a beta package); **never xUnit**
@@ -102,7 +102,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Create `src/app/src/api/` first (the template's `README.txt`): the build writes the OpenAPI document there
   - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need); shared properties in `src/backend/Directory.Build.props`; `src/backend/Directory.Build.targets` adds the `Should()` assertion package to every project that references `TUnit`
   - Layout under `src/backend`, every project in `<project>.slnx` (folders mirror directories):
-    - `runtime/<PROJECT>.Runtime.csproj`: the web host; keep it lean, business logic goes in feature packages; one `ProjectReference` per slice; writes OpenAPI (path relative to the csproj directory) and serves Scalar in Development
+    - `runtime/<PROJECT>.Runtime.csproj`: the web host; keep it lean, business logic goes in feature packages; one `ProjectReference` per slice; writes OpenAPI (path relative to the csproj directory) and serves Scalar in Development; `Program.cs` only calls the setup classes (`Setup/`: settings, OpenAPI + Scalar, startup)
     - `packages/<PROJECT>.Config` (`AppSettings.cs`: the strongly typed `public record class` settings), `.Api` (endpoint contracts, discovery, `Security/`, `SpaSetup`), `.Telemetry`
     - `packages/<PROJECT>.Health` and `.Health.Tests`: the first slice, the worked example for every later `<PROJECT>.<FEATURE_SLICE>`; `.Identity` and `.Identity.Tests`: `GET /me`
     - `packages/<PROJECT>.Api.Tests` (lints the OpenAPI document; tests route groups, guards, and front-end hosting in memory) and `.Runtime.Tests` (lints every real route: secured or listed as anonymous; references the runtime)
@@ -112,7 +112,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Build info: `Health` reports the running version, commit, and build time (`BuildInfo`), also logged at startup and sent as `service.version` (`hg-mdn-backend`, `references/build-info.md`)
   - Sign-in is the step 0 answer.  Until a scheme is chosen keep the placeholder `Add<PROJECT>Authentication` (Development signs in a configured user; elsewhere secured routes answer 401); replacing it changes nothing else
   - Every endpoint gets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` lints the OpenAPI document, so a missing one fails `mise run test` and CI, not `dotnet build` (`hg-mdn-backend`, `references/openapi-contract.md`)
-  - `Program.cs` carries `HttpExceptionHandler` and the `isOpenApiGeneration` guard (the build runs it up to `app.Run()`; skip infrastructure in that mode)
+  - Composition root (`hg-mdn-backend`, `references/composition-root.md`): `Program.cs` is a table of contents, one `Add<PROJECT>X` / `Use<PROJECT>X` / `Map<PROJECT>X` call per concern.  The build runs the whole host to write OpenAPI, so registrations stay free of infrastructure and `StartupSetup` skips its work in that mode (`OpenApiSetup.IsGeneratingDocument`)
   - No migration ships: the first entity needs `dotnet ef migrations add` (`hg-mdn-backend`, `references/data-efcore.md`), and the Zeeq Biome test setup arrives with it: `Zeeq.Biome*` references in `<PROJECT>.Testing` (already versioned in `Directory.Packages.props`), the seed, `TestBiome`, and blueprints in `<PROJECT>.Testing/Biome/`, then its agent skills (`hg-mdn-backend`, `references/zeeq-biome.md`)
   - Zero tolerance: `TreatWarningsAsErrors` in `Directory.Build.props`; raising `AnalysisLevel`, banned APIs, and custom analyzers are per-project choices (`hg-mdn-backend`, `references/static-analysis.md`)
   - Verify: `dotnet build` reports 0 warnings and writes `src/app/src/api/<project>-api.json`; `dotnet test --solution <project>.slnx` passes (database tests need Docker)

@@ -6,8 +6,8 @@ Placeholders (`<PROJECT>`, `<project>`, `<BACKEND_API_PORT>`, `<GUID>`, ...): se
 Versions are a snapshot: replace each with the latest stable at scaffold time.
 
 **No database chosen:** skip this file and remove the rest of the data wiring: the `<PROJECT>.Data`,
-`.Data.Tests`, `.Testing`, and `.Testing.Tests` projects (and their `.slnx` entries); the data lines in
-`Program.cs` and the `<PROJECT>.Data` reference in the runtime csproj; `AddNpgsqlInstrumentation` and the
+`.Data.Tests`, `.Testing`, and `.Testing.Tests` projects (and their `.slnx` entries); the `Add<PROJECT>Data` call in
+`Program.cs`, the migration line in `Setup/StartupSetup.cs`, and the `<PROJECT>.Data` reference in the runtime csproj; `AddNpgsqlInstrumentation` and the
 Npgsql and EF Core packages in `<PROJECT>.Telemetry` and `Directory.Packages.props`; the Postgres, database, and
 LibreDB resources in the AppHost; `postgres` in `mise.toml`; the `Migrations` line in `.csharpierignore`.
 
@@ -29,7 +29,7 @@ dotnet ef migrations add Initial --project src/backend/packages/<PROJECT>.Data
 ```
 
 The design-time factory means no startup project is needed.  Migrations are applied at app startup
-(`UseDataAsync` in `Program.cs`); `.csharpierignore` already skips the generated `Migrations` folder.
+(`Use<PROJECT>DataAsync`, called from `Setup/StartupSetup.cs`); `.csharpierignore` already skips the generated `Migrations` folder.
 
 ## Data package
 
@@ -107,17 +107,20 @@ public static class DataSetup
         /// <summary>
         /// Registers <see cref="AppDbContext"/> using the Aspire-provided connection string.
         /// </summary>
-        public IServiceCollection Add<PROJECT>Data(IConfiguration configuration)
-        {
-            var connectionString = configuration.GetConnectionString(ConnectionStringName)
-                ?? throw new InvalidOperationException(
-                    $"Connection string '{ConnectionStringName}' is missing; run the app via Aspire (`mise run up`)."
-                );
-
-            return services.AddDbContext<AppDbContext>(options =>
-                options.Configure<PROJECT>Db(connectionString)
+        /// <remarks>
+        /// The connection string is read when the first context is built, not here: the build-time
+        /// OpenAPI generator runs the host with no database and still has to register everything.
+        /// A missing string fails at startup, in the migration step (`Use<PROJECT>DataAsync`).
+        /// </remarks>
+        public IServiceCollection Add<PROJECT>Data(IConfiguration configuration) =>
+            services.AddDbContext<AppDbContext>(options =>
+                options.Configure<PROJECT>Db(
+                    configuration.GetConnectionString(ConnectionStringName)
+                        ?? throw new InvalidOperationException(
+                            $"Connection string '{ConnectionStringName}' is missing; run the app via Aspire (`mise run up`)."
+                        )
+                )
             );
-        }
     }
 
     extension(IServiceProvider services)
