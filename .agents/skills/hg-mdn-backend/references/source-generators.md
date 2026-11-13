@@ -184,10 +184,11 @@ public sealed class TypedIdGeneratorTests
         var generated = driver.GetRunResult().GeneratedTrees.Select(t => t.FilePath).ToList();
         var errors = output.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
 
-        await Assert
-            .That(generated.Any(path => path.EndsWith("OrderId.g.cs", StringComparison.Ordinal)))
-            .IsTrue();
-        await Assert.That(errors).IsEmpty();
+        await generated
+            .Any(path => path.EndsWith("OrderId.g.cs", StringComparison.Ordinal))
+            .Should()
+            .BeTrue();
+        await errors.Should().BeEmpty();
     }
 
     [Test]
@@ -214,16 +215,13 @@ public sealed class TypedIdGeneratorTests
             .SelectMany(step => step.Outputs)
             .ToList();
 
-        await Assert.That(outputs).IsNotEmpty(); // the check below must not pass vacuously
-        await Assert
-            .That(
-                outputs.All(o =>
-                    o.Reason
-                        is IncrementalStepRunReason.Cached
-                            or IncrementalStepRunReason.Unchanged
-                )
+        await outputs.Should().NotBeEmpty(); // the check below must not pass vacuously
+        await outputs
+            .All(o =>
+                o.Reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged
             )
-            .IsTrue();
+            .Should()
+            .BeTrue();
     }
 }
 ```

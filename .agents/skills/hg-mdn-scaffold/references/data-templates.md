@@ -368,13 +368,15 @@ public sealed class DateTimeOffsetExtensionsTests
     [Arguments(0L)]
     [Arguments(1L)]
     [Arguments(9L)]
-    public async Task TruncateToPostgresPrecision_SubMicrosecondTicks_ReturnsAlignedTicks(long extraTicks)
+    public async Task TruncateToPostgresPrecision_SubMicrosecondTicks_ReturnsAlignedTicks(
+        long extraTicks
+    )
     {
         var value = new DateTimeOffset(MicrosecondAlignedTicks + extraTicks, TimeSpan.Zero);
 
         var truncated = value.TruncateToPostgresPrecision();
 
-        await Assert.That(truncated.Ticks).IsEqualTo(MicrosecondAlignedTicks);
+        await truncated.Ticks.Should().BeEqualTo(MicrosecondAlignedTicks);
     }
 }
 ```
@@ -416,7 +418,7 @@ public sealed class DatabaseFixtureTests(PgDatabaseFixture pg) : PgTransactional
     {
         var canConnect = await _context.Database.CanConnectAsync();
 
-        await Assert.That(canConnect).IsTrue();
+        await canConnect.Should().BeTrue();
     }
 }
 ```

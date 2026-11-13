@@ -215,8 +215,8 @@ Three layers, fastest first.  Run one class with `--treenode-filter "/*/*/<Class
         // is signed in and send the user to the login page again.
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: null);
 
-        await Assert.That(result).IsTypeOf<ForbidHttpResult>();
-        await Assert.That(nextCalled).IsFalse();
+        await result.Should().BeOfType(typeof(ForbidHttpResult));
+        await nextCalled.Should().BeFalse();
 ```
 
 **2. Pipeline tests with an in-memory host** (`Microsoft.AspNetCore.TestHost`): real routing, authentication, authorization, and filters, no Kestrel, no database.  `ProbeHost` and the probe endpoints (`ProbeEndpoints`, `ProbeAdminEndpoints`) are in the test project; a header-driven scheme stands in for sign-in, and the probe endpoints go through the same endpoint scan as real slices, so the test exercises `Map<PROJECT>Endpoints` itself.
@@ -230,8 +230,8 @@ Three layers, fastest first.  Run one class with `--treenode-filter "/*/*/<Class
         );
 
         // Signed in but missing the role: 403, not 404 (only admin routes hide themselves).
-        await Assert.That(signedInOnly.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(analyst.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await signedInOnly.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await analyst.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
 ```
 
 | Class | Pins |

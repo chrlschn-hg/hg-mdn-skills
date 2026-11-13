@@ -12,6 +12,7 @@ Versions are a snapshot: replace each with the latest stable at scaffold time.
 ```text
 src/backend/
   Directory.Build.props
+  Directory.Build.targets
   Directory.Packages.props
   packages/
     <PROJECT>.Config/          AppSettings (strongly typed settings)
@@ -58,9 +59,24 @@ src/backend/
 </Project>
 ```
 
+### `src/backend/Directory.Build.targets`
+
+Tests assert with the fluent `Should()` syntax (`await value.Should().BeEqualTo(x)`), which comes from the optional `TUnit.Assertions.Should` package.  This file gives it, and the two namespaces it needs, to every project that references `TUnit`, so no test project repeats them.  The package is a **beta** (the only release line): keep it unless a stable one exists (`hg-mdn-backend`, `references/tunit.md`).
+
+```xml
+<Project>
+  <!-- A project that references TUnit asserts with `value.Should()...`: add the (beta) package and its namespaces. -->
+  <ItemGroup Condition="@(PackageReference->AnyHaveMetadataValue('Identity', 'TUnit'))">
+    <PackageReference Include="TUnit.Assertions.Should" />
+    <Using Include="TUnit.Assertions.Should" />
+    <Using Include="TUnit.Assertions.Should.Extensions" />
+  </ItemGroup>
+</Project>
+```
+
 ### `src/backend/Directory.Packages.props`
 
-Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  **The EF Core family is one major line, and it trails the SDK:** `Microsoft.EntityFrameworkCore.*`, `Npgsql.EntityFrameworkCore.PostgreSQL`, and `EFCore.NamingConventions` each require EF Core `< 11`, and the Npgsql provider had no stable 11.x on 2026-11-12, so these entries stay on 10.0.x and run on `net11.0` (ASP.NET Core and the rest of the set are 11.0.0).  When a stable Npgsql 11.x ships, move all three (and `dotnet-ef`) together, then `mise run check`.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
+Central package management: versions live here only; csproj files use bare `<PackageReference Include="..." />`.  `TUnit.Core` needs its own entry because `<PROJECT>.Testing` references it; `TUnit.Assertions.Should` is a beta that `Directory.Build.targets` adds to every project that references `TUnit`.  `OpenTelemetry.Instrumentation.EntityFrameworkCore` is a pre-release package: keep it unless a stable one exists.  `Zeeq.Biome` and `Zeeq.Biome.EntityFrameworkCore` (keep their versions equal) are versioned here for the first entity's test setup; nothing references them until then (`hg-mdn-backend`, `references/zeeq-biome.md`).  **The EF Core family is one major line, and it trails the SDK:** `Microsoft.EntityFrameworkCore.*`, `Npgsql.EntityFrameworkCore.PostgreSQL`, and `EFCore.NamingConventions` each require EF Core `< 11`, and the Npgsql provider had no stable 11.x on 2026-11-12, so these entries stay on 10.0.x and run on `net11.0` (ASP.NET Core and the rest of the set are 11.0.0).  When a stable Npgsql 11.x ships, move all three (and `dotnet-ef`) together, then `mise run check`.  Drop packages for features not chosen (for example the Npgsql and EF Core entries when there is no database).
 
 ```xml
 <Project>
@@ -100,6 +116,7 @@ Central package management: versions live here only; csproj files use bare `<Pac
     <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="TUnit" Version="1.84.0" />
+    <PackageVersion Include="TUnit.Assertions.Should" Version="1.84.0-beta" />
     <PackageVersion Include="TUnit.Core" Version="1.84.0" />
     <PackageVersion Include="Zeeq.Biome" Version="1.1.0" />
     <PackageVersion Include="Zeeq.Biome.EntityFrameworkCore" Version="1.1.0" />
@@ -866,7 +883,7 @@ public sealed partial class OpenApiDocumentTests
             .Where(op => string.IsNullOrWhiteSpace(op.Id))
             .Select(op => op.Label);
 
-        await Assert.That(offenders).IsEmpty();
+        await offenders.Should().BeEmpty();
     }
 
     [Test]
@@ -876,7 +893,7 @@ public sealed partial class OpenApiDocumentTests
             .Where(op => string.IsNullOrWhiteSpace(op.Summary) || !op.Summary.EndsWith('.'))
             .Select(op => $"{op.Label}: '{op.Summary}'");
 
-        await Assert.That(offenders).IsEmpty();
+        await offenders.Should().BeEmpty();
     }
 
     [Test]
@@ -886,7 +903,7 @@ public sealed partial class OpenApiDocumentTests
             .Where(op => !IsWellFormedDescription(op.Description))
             .Select(op => $"{op.Label}: {Describe(op.Description)}");
 
-        await Assert.That(offenders).IsEmpty();
+        await offenders.Should().BeEmpty();
     }
 
     private static bool IsWellFormedDescription(string? description)
@@ -1030,7 +1047,7 @@ public sealed class RouteSecurityTests
 
         var response = await host.Client.SendAsync(Get("/api/secret"));
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.Unauthorized);
     }
 
     [Test]
@@ -1040,7 +1057,7 @@ public sealed class RouteSecurityTests
 
         var response = await host.Client.SendAsync(Get("/api/secret", user: "ada"));
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1050,7 +1067,7 @@ public sealed class RouteSecurityTests
 
         var response = await host.Client.SendAsync(Get("/api/open"));
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1064,23 +1081,20 @@ public sealed class RouteSecurityTests
         );
 
         // Signed in but missing the role: 403, not 404 (only admin routes hide themselves).
-        await Assert.That(signedInOnly.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(analyst.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await signedInOnly.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await analyst.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
     [Arguments(null, null)]
     [Arguments("ada", "member")]
-    public async Task AdminRoute_NonAdminUser_ReturnsNotFound(
-        string? user,
-        string? roles
-    )
+    public async Task AdminRoute_NonAdminUser_ReturnsNotFound(string? user, string? roles)
     {
         await using var host = await ProbeHost.StartAsync();
 
         var response = await host.Client.SendAsync(Get("/api/admin/stats", user, roles));
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -1092,7 +1106,7 @@ public sealed class RouteSecurityTests
             Get("/api/admin/stats", user: "ada", roles: "member,admin")
         );
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1102,8 +1116,8 @@ public sealed class RouteSecurityTests
 
         var response = await host.Client.SendAsync(Get("/api/typo"));
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That(await response.Content.ReadAsStringAsync()).Contains("not_found");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
+        await (await response.Content.ReadAsStringAsync()).Should().Contain("not_found");
     }
 }
 ```
@@ -1155,9 +1169,9 @@ public sealed class RouteGuardPipelineTests
         );
 
         // Signed in without the claim is 403, not 401: the front-end reads 401 as "nobody".
-        await Assert.That(noClaim.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(other.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(own.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await noClaim.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await other.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await own.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1174,9 +1188,9 @@ public sealed class RouteGuardPipelineTests
             Get("/api/tenants/t1/stamped", user: "ada", tenant: "t1")
         );
 
-        await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(rejected.Headers.Contains("X-Endpoint-Filter")).IsFalse();
-        await Assert.That(allowed.Headers.Contains("X-Endpoint-Filter")).IsTrue();
+        await rejected.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await rejected.Headers.Contains("X-Endpoint-Filter").Should().BeFalse();
+        await allowed.Headers.Contains("X-Endpoint-Filter").Should().BeTrue();
     }
 
     [Test]
@@ -1186,7 +1200,7 @@ public sealed class RouteGuardPipelineTests
 
         var response = await host.Client.SendAsync(Get("/api/ordered", user: "ada"));
 
-        await Assert.That(string.Join(",", response.Headers.GetValues("X-Order"))).IsEqualTo("a,b");
+        await string.Join(",", response.Headers.GetValues("X-Order")).Should().BeEqualTo("a,b");
     }
 
     [Test]
@@ -1207,11 +1221,11 @@ public sealed class RouteGuardPipelineTests
             Get("/api/tenants/t9/export", user: "ada", tenant: "t1")
         );
 
-        await Assert.That(active.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(suspended.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
-        await Assert.That(unknown.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await active.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await suspended.StatusCode.Should().BeEqualTo(HttpStatusCode.Conflict);
+        await unknown.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
         // The cheap guard answers first (403), so a stranger cannot probe which tenants exist.
-        await Assert.That(someoneElses.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
+        await someoneElses.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
     }
 
     [Test]
@@ -1224,8 +1238,8 @@ public sealed class RouteGuardPipelineTests
         );
         var own = await host.Client.SendAsync(Get("/api/orgs/o1/info", user: "ada", tenant: "o1"));
 
-        await Assert.That(other.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
-        await Assert.That(own.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await other.StatusCode.Should().BeEqualTo(HttpStatusCode.Forbidden);
+        await own.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 }
 ```
@@ -1272,8 +1286,8 @@ public sealed class PlaceholderAuthenticationTests
         var open = await host.Client.SendAsync(Get("/api/open"));
 
         // Nobody can sign in until the project registers a real scheme: 401, not a 500.
-        await Assert.That(secured.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
-        await Assert.That(open.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await secured.StatusCode.Should().BeEqualTo(HttpStatusCode.Unauthorized);
+        await open.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1289,8 +1303,8 @@ public sealed class PlaceholderAuthenticationTests
         var secured = await host.Client.SendAsync(Get("/api/secret"));
         var admin = await host.Client.SendAsync(Get("/api/admin/stats"));
 
-        await Assert.That(secured.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(admin.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await secured.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await admin.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1301,8 +1315,8 @@ public sealed class PlaceholderAuthenticationTests
         var secured = await host.Client.SendAsync(Get("/api/secret"));
         var admin = await host.Client.SendAsync(Get("/api/admin/stats"));
 
-        await Assert.That(secured.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(admin.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await secured.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await admin.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -1316,7 +1330,7 @@ public sealed class PlaceholderAuthenticationTests
 
         var admin = await host.Client.SendAsync(Get("/api/admin/stats"));
 
-        await Assert.That(admin.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await admin.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
     }
 }
 ```
@@ -1361,9 +1375,9 @@ public sealed class SpaHostingTests
 
         var response = await host.Client.GetAsync("/");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
-        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await (await response.Content.ReadAsStringAsync()).Should().BeEqualTo(IndexHtml);
+        await (response.Headers.CacheControl?.ToString()).Should().BeEqualTo("no-cache");
     }
 
     [Test]
@@ -1373,9 +1387,9 @@ public sealed class SpaHostingTests
 
         var response = await host.Client.GetAsync("/notes/123");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
-        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await (await response.Content.ReadAsStringAsync()).Should().BeEqualTo(IndexHtml);
+        await (response.Headers.CacheControl?.ToString()).Should().BeEqualTo("no-cache");
     }
 
     [Test]
@@ -1385,10 +1399,10 @@ public sealed class SpaHostingTests
 
         var response = await host.Client.GetAsync("/assets/index-4f2a9c.js");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert
-            .That(response.Headers.CacheControl?.ToString())
-            .IsEqualTo("public, max-age=31536000, immutable");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await (response.Headers.CacheControl?.ToString())
+            .Should()
+            .BeEqualTo("public, max-age=31536000, immutable");
     }
 
     [Test]
@@ -1399,9 +1413,9 @@ public sealed class SpaHostingTests
         // A page route that happens to start with `/assets` must not inherit the asset cache rule.
         var response = await host.Client.GetAsync("/assets/overview");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(await response.Content.ReadAsStringAsync()).IsEqualTo(IndexHtml);
-        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await (await response.Content.ReadAsStringAsync()).Should().BeEqualTo(IndexHtml);
+        await (response.Headers.CacheControl?.ToString()).Should().BeEqualTo("no-cache");
     }
 
     [Test]
@@ -1411,8 +1425,8 @@ public sealed class SpaHostingTests
 
         var response = await host.Client.GetAsync("/favicon.svg");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(response.Headers.CacheControl?.ToString()).IsEqualTo("no-cache");
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
+        await (response.Headers.CacheControl?.ToString()).Should().BeEqualTo("no-cache");
     }
 
     [Test]
@@ -1423,8 +1437,8 @@ public sealed class SpaHostingTests
         // A stale chunk name after a deploy: index.html here would be parsed as JavaScript.
         var response = await host.Client.GetAsync("/assets/index-000000.js");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That(await response.Content.ReadAsStringAsync()).IsNotEqualTo(IndexHtml);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
+        await (await response.Content.ReadAsStringAsync()).Should().NotBeEqualTo(IndexHtml);
     }
 
     [Test]
@@ -1434,11 +1448,11 @@ public sealed class SpaHostingTests
 
         var response = await host.Client.GetAsync("/api/typo");
 
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await response.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
 
         var error = await response.Content.ReadFromJsonAsync<ApiError>();
 
-        await Assert.That(error?.Code).IsEqualTo("not_found");
+        await (error?.Code).Should().BeEqualTo("not_found");
     }
 
     [Test]
@@ -1449,8 +1463,8 @@ public sealed class SpaHostingTests
         var secured = await host.Client.GetAsync("/api/secret");
         var open = await host.Client.GetAsync("/api/open");
 
-        await Assert.That(secured.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
-        await Assert.That(open.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await secured.StatusCode.Should().BeEqualTo(HttpStatusCode.Unauthorized);
+        await open.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -1463,9 +1477,9 @@ public sealed class SpaHostingTests
         var route = await host.Client.GetAsync("/notes/123");
         var api = await host.Client.GetAsync("/api/open");
 
-        await Assert.That(root.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That(route.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That(api.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await root.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
+        await route.StatusCode.Should().BeEqualTo(HttpStatusCode.NotFound);
+        await api.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
     }
 }
 ```
@@ -1823,8 +1837,8 @@ public sealed class RouteGuardUnitTests
     {
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: "t1");
 
-        await Assert.That(result).IsEqualTo("next");
-        await Assert.That(nextCalled).IsTrue();
+        await result.Should().BeEqualTo("next");
+        await nextCalled.Should().BeTrue();
     }
 
     [Test]
@@ -1832,8 +1846,8 @@ public sealed class RouteGuardUnitTests
     {
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: "t2");
 
-        await Assert.That(result).IsTypeOf<ForbidHttpResult>();
-        await Assert.That(nextCalled).IsFalse();
+        await result.Should().BeOfType(typeof(ForbidHttpResult));
+        await nextCalled.Should().BeFalse();
     }
 
     [Test]
@@ -1843,8 +1857,8 @@ public sealed class RouteGuardUnitTests
         // is signed in and send the user to the login page again.
         var (result, nextCalled) = await Run(routeTenant: "t1", claimTenant: null);
 
-        await Assert.That(result).IsTypeOf<ForbidHttpResult>();
-        await Assert.That(nextCalled).IsFalse();
+        await result.Should().BeOfType(typeof(ForbidHttpResult));
+        await nextCalled.Should().BeFalse();
     }
 
     [Test]
@@ -1852,7 +1866,7 @@ public sealed class RouteGuardUnitTests
     {
         var (result, _) = await Run(routeTenant: null, claimTenant: "t1");
 
-        await Assert.That(result).IsTypeOf<BadRequest>();
+        await result.Should().BeOfType(typeof(BadRequest));
     }
 }
 ```
@@ -2371,8 +2385,8 @@ public sealed class HealthHandlerTests
 
         var result = await handler.HandleAsync();
 
-        await Assert.That(result.Value).IsNotNull();
-        await Assert.That(result.Value!.Status).IsEqualTo("Healthy");
+        await result.Value.Should().NotBeNull();
+        await result.Value!.Status.Should().BeEqualTo("Healthy");
     }
 
     [Test]
@@ -2383,9 +2397,9 @@ public sealed class HealthHandlerTests
 
         var result = await handler.HandleAsync();
 
-        await Assert
-            .That(result.Value!.Build)
-            .IsEqualTo(new BuildResponse("1.4.0", "3f2a1bc9d0e8", builtAt));
+        await result
+            .Value!.Build.Should()
+            .BeEqualTo(new BuildResponse("1.4.0", "3f2a1bc9d0e8", builtAt));
     }
 }
 ```
@@ -2405,12 +2419,12 @@ public sealed class BuildInfoTests
             "2026-10-11T14:02:03.0000000Z"
         );
 
-        await Assert.That(info.Version).IsEqualTo("1.4.0-rc.2");
-        await Assert.That(info.Commit).IsEqualTo("3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff");
-        await Assert.That(info.ShortCommit).IsEqualTo("3f2a1bc");
-        await Assert
-            .That(info.BuiltAtUtc)
-            .IsEqualTo(new DateTimeOffset(2026, 10, 11, 14, 2, 3, TimeSpan.Zero));
+        await info.Version.Should().BeEqualTo("1.4.0-rc.2");
+        await info.Commit.Should().BeEqualTo("3f2a1bc9d0e84a5b6c7d8e9f00112233445566ff");
+        await info.ShortCommit.Should().BeEqualTo("3f2a1bc");
+        await info
+            .BuiltAtUtc.Should()
+            .BeEqualTo(new DateTimeOffset(2026, 10, 11, 14, 2, 3, TimeSpan.Zero));
     }
 
     [Test]
@@ -2418,10 +2432,10 @@ public sealed class BuildInfoTests
     {
         var info = BuildInfo.Parse("0.0.0-dev", null);
 
-        await Assert.That(info.Version).IsEqualTo("0.0.0-dev");
-        await Assert.That(info.Commit).IsNull();
-        await Assert.That(info.ShortCommit).IsEqualTo("unknown");
-        await Assert.That(info.BuiltAtUtc).IsNull();
+        await info.Version.Should().BeEqualTo("0.0.0-dev");
+        await info.Commit.Should().BeNull();
+        await info.ShortCommit.Should().BeEqualTo("unknown");
+        await info.BuiltAtUtc.Should().BeNull();
     }
 
     [Test]
@@ -2430,13 +2444,13 @@ public sealed class BuildInfoTests
     [Arguments("+abc")]
     public async Task Parse_MissingVersion_ReportsUnknownVersion(string? informationalVersion)
     {
-        await Assert.That(BuildInfo.Parse(informationalVersion, null).Version).IsEqualTo("unknown");
+        await BuildInfo.Parse(informationalVersion, null).Version.Should().BeEqualTo("unknown");
     }
 
     [Test]
     public async Task Parse_UnreadableTimestamp_LeavesBuildTimeUnset()
     {
-        await Assert.That(BuildInfo.Parse("1.0.0", "yesterday-ish").BuiltAtUtc).IsNull();
+        await BuildInfo.Parse("1.0.0", "yesterday-ish").BuiltAtUtc.Should().BeNull();
     }
 
     [Test]
@@ -2445,7 +2459,7 @@ public sealed class BuildInfoTests
         // This test assembly was built by the same SDK, so it carries an informational version.
         var info = BuildInfo.From(typeof(BuildInfoTests).Assembly);
 
-        await Assert.That(info.Version).IsNotEqualTo("unknown");
+        await info.Version.Should().NotBeEqualTo("unknown");
     }
 }
 ```
@@ -2590,10 +2604,10 @@ public sealed class GetMeHandlerTests
     {
         var result = new GetMeHandler().Handle(User("member"));
 
-        await Assert.That(result.Value!.Subject).IsEqualTo("user-1");
-        await Assert.That(result.Value!.Name).IsEqualTo("Ada");
-        await Assert.That(result.Value!.Roles).IsEquivalentTo(["member"]);
-        await Assert.That(result.Value!.IsAdmin).IsFalse();
+        await result.Value!.Subject.Should().BeEqualTo("user-1");
+        await result.Value!.Name.Should().BeEqualTo("Ada");
+        await result.Value!.Roles.Should().BeEquivalentTo(["member"]);
+        await result.Value!.IsAdmin.Should().BeFalse();
     }
 
     [Test]
@@ -2601,7 +2615,7 @@ public sealed class GetMeHandlerTests
     {
         var result = new GetMeHandler().Handle(User("member", "admin"));
 
-        await Assert.That(result.Value!.IsAdmin).IsTrue();
+        await result.Value!.IsAdmin.Should().BeTrue();
     }
 }
 ```
@@ -2695,8 +2709,8 @@ public sealed class RouteSecurityLintTests
     public async Task RouteLinter_RealRoutes_IncludesHealthAndMe()
     {
         // Guards the lint itself: an empty route list would make the checks below pass vacuously.
-        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /api/health");
-        await Assert.That(Routes().Select(r => r.Route)).Contains("GET /api/me");
+        await Routes().Select(r => r.Route).Should().Contain("GET /api/health");
+        await Routes().Select(r => r.Route).Should().Contain("GET /api/me");
     }
 
     [Test]
@@ -2704,7 +2718,7 @@ public sealed class RouteSecurityLintTests
     {
         var offenders = Routes().Where(r => !r.Secured && !r.Anonymous).Select(r => r.Route);
 
-        await Assert.That(offenders).IsEmpty();
+        await offenders.Should().BeEmpty();
     }
 
     [Test]
@@ -2712,7 +2726,7 @@ public sealed class RouteSecurityLintTests
     {
         var anonymous = Routes().Where(r => r.Anonymous).Select(r => r.Route);
 
-        await Assert.That(anonymous).IsEquivalentTo(AnonymousRoutes);
+        await anonymous.Should().BeEquivalentTo(AnonymousRoutes);
     }
 }
 ```

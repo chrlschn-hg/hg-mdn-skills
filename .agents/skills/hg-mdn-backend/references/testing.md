@@ -27,7 +27,7 @@ Rules of thumb:
 
 ## What a test project is
 
-A TUnit test project is a self-executing console app (`OutputType` `Exe`) that references only `TUnit`:
+A TUnit test project is a self-executing console app (`OutputType` `Exe`) that references only `TUnit`.  `Directory.Build.targets` adds the `Should()` assertion package (`TUnit.Assertions.Should`, a beta) and its usings to any project that references `TUnit`:
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -83,7 +83,7 @@ MTP exit codes: `0` success, `2` test failure, `5` zero tests ran (<https://aka.
 - **Skip the bare write-then-read.**  It proves little unless the mapping, query, ordering, or constraint is what could break; then say which in the name and assert that.
 - Arrange, act, assert, with a blank line between each.  A short comment above a non-obvious setup says *why* (`// Three notes here, two in a second notebook`).
 - TUnit creates **a new class instance per test**, so fields and constructor state never leak between tests.  Per-test setup: constructor or `[Before(Test)]`.  Expensive shared resources (containers): a `[ClassDataSource<T>]` fixture.
-- **Every `Assert.That(...)` must be awaited.**  An unawaited assertion silently does nothing.
+- **Every assertion is awaited** (`await value.Should()...`).  An unawaited assertion does nothing; the analyzer reports it as build error `TUnitAssertions0002`.
 
 ## Test data
 
@@ -103,9 +103,9 @@ Call `HandleAsync` directly with a fake store.  Fast, deterministic, and they co
 
         var badRequest = result.Result as BadRequest<ApiError>;
 
-        await Assert.That(badRequest).IsNotNull();
-        await Assert.That(badRequest!.Value!.Code).IsEqualTo("invalid_title");
-        await Assert.That(store.Notes).IsEmpty();
+        await badRequest.Should().NotBeNull();
+        await badRequest!.Value!.Code.Should().BeEqualTo("invalid_title");
+        await store.Notes.Should().BeEmpty();
 ```
 
 When the handler needs existing rows, build them with Biome (no store: the entities exist as each Add returns) and load the fake from what the chain returned:
@@ -125,9 +125,9 @@ When the handler needs existing rows, build them with Biome (no store: the entit
 
         var notFound = result.Result as NotFound<ApiError>;
 
-        await Assert.That(notFound).IsNotNull();
-        await Assert.That(notFound!.Value!.Code).IsEqualTo("notebook_not_found");
-        await Assert.That(store.Notes).IsEmpty();
+        await notFound.Should().NotBeNull();
+        await notFound!.Value!.Code.Should().BeEqualTo("notebook_not_found");
+        await store.Notes.Should().BeEmpty();
 ```
 
 Cast `result.Result` to the expected `TypedResults` type to assert the status (`result.Result as NotFound<ApiError>`).  Assert the **error code**, not the message.  A handler that takes a `ClaimsPrincipal` gets one from a small private helper that builds a `ClaimsIdentity` with the claims the code reads (`GetMeHandlerTests` in `<PROJECT>.Identity.Tests`); promote it to `<PROJECT>.Testing` when several test projects need it.
@@ -239,13 +239,13 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
 
         var notes = await store.ListAsync(null, CancellationToken.None);
 
-        await Assert.That(notes.Count).IsEqualTo(1);
-        await Assert.That(notes[0].Id).IsEqualTo(created.Id);
-        await Assert.That(notes[0].Title).IsEqualTo("Hello");
-        await Assert.That(notes[0].NotebookId).IsEqualTo(notebook.Id);
-        await Assert
-            .That(notes[0].CreatedAtUtc)
-            .IsEqualTo(created.CreatedAtUtc.TruncateToPostgresPrecision());
+        await notes.Count.Should().BeEqualTo(1);
+        await notes[0].Id.Should().BeEqualTo(created.Id);
+        await notes[0].Title.Should().BeEqualTo("Hello");
+        await notes[0].NotebookId.Should().BeEqualTo(notebook.Id);
+        await notes[0]
+            .CreatedAtUtc.Should()
+            .BeEqualTo(created.CreatedAtUtc.TruncateToPostgresPrecision());
 ```
 
 - `[ClassDataSource<PgDatabaseFixture>(Shared = SharedType.PerTestSession)]` boots **one** Postgres container for the whole run, reused by every class that declares it (`PgDatabaseFixture` in `<PROJECT>.Testing`).

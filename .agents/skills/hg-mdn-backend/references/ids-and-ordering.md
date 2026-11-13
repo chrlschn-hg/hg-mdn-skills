@@ -340,4 +340,4 @@ public static class RowRank
 | `RowOrdering_EqualRanks_UsesV7IdTieBreaker` | equal ranks fall back to the time-ordered id |
 | Rank spreading, midpoint, and repeated insertion tests | even short ranks; neighbors respected; growth at a hot spot, then a rebalance that shortens them |
 
-**Assert order with `IsEquivalentTo(expected, CollectionOrdering.Matching)`.**  Plain `IsEquivalentTo` ignores order, so an assertion that "the list is in order" passes for any order (`tunit.md`).
+**Assert order with `BeEquivalentTo(expected, CollectionOrdering.Matching)`.**  Plain `BeEquivalentTo` ignores order, so an assertion that "the list is in order" passes for any order (`tunit.md`).
