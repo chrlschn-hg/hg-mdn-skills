@@ -11,7 +11,7 @@ Most tests are **fast, in-process, and call code directly**: no host-level tests
 | **Handler tests** (the bulk) | `<PROJECT>.<Slice>.Tests` | `HandleAsync`: guards, result selection, mapping | a Zeeq Biome chain in memory + a hand-written fake store |
 | **Store integration tests** | `<PROJECT>.Data.Tests` | the real store on real Postgres: queries, ordering, constraints, round-trips | a Zeeq Biome chain saved through the test's `DbContext` |
 | **Test-infrastructure tests** | `<PROJECT>.Testing.Tests`, and `NotesBlueprintsTests` in `<PROJECT>.Data.Tests` | fixtures and helpers; that every blueprint's defaults save | the helpers themselves; the blueprints through the database |
-| **Contract lint** | `<PROJECT>.Api.Tests` | the committed OpenAPI document: every operation named, summarized, described | the JSON file the build writes |
+| **Contract lint** | `<PROJECT>.Api.Tests` | the committed OpenAPI document: every operation named, summarized, described; a missing `WithDescription` fails `mise run test` and CI (`openapi-contract.md`) | the JSON file the build writes |
 | **Route-security tests** | `<PROJECT>.Api.Tests` | route groups and guards through an in-memory pipeline: 401, 403, hidden 404, filter order | probe endpoints, header-driven test scheme |
 | **Route-security lint** | `<PROJECT>.Runtime.Tests` | every real route is secured or listed as anonymous | the real endpoint set, never requested |
 | **Front-end hosting tests** | `<PROJECT>.Api.Tests` | the runtime serving the built front-end: files, fallback, cache headers, the line to the API (`spa-hosting.md`) | a temporary web root, the in-memory pipeline |
@@ -259,10 +259,6 @@ public sealed class NoteStoreIntegrationTests(PgDatabaseFixture pg) : PgTransact
 ## Timestamps through the database
 
 Postgres keeps `timestamptz` to the microsecond; .NET ticks are 100 ns.  A round-tripped timestamp compares equal on macOS (microsecond clock) but not on Linux CI.  Values Zeeq Biome builds (`ctx.Now`, `ctx.Ago(...)`) are already truncated to the microsecond, so they compare equal as built.  A timestamp from anywhere else (the store stamping `UtcNow`, as in the last assertion above) needs the *expected* side truncated with `TruncateToPostgresPrecision()` (`<PROJECT>.Testing`).
-
-## Contract lint: descriptions are enforced
-
-`<PROJECT>.Api.Tests` reads the committed OpenAPI document and fails when an operation has no `operationId`, no summary ending in a period, or a description that is not one to two paragraphs of one to six sentences (`openapi-contract.md`).  An endpoint without `WithDescription` therefore fails `mise run test` and CI: the descriptions are the API documentation.
 
 ## CI
 

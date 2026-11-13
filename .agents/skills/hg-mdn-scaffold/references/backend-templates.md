@@ -2977,7 +2977,7 @@ internal static class SettingsSetup
 
 ### `src/backend/runtime/Setup/OpenApiSetup.cs`
 
-The OpenAPI document and the Scalar UI that renders it, in one place.  Both are public and Development-only: `MapOpenApi` and Scalar sit outside the secured route groups, so a deployed environment never serves them (the build still writes the document).  `IsGeneratingDocument` is here because it is an OpenAPI fact: the build-time generator runs this host.  Scalar's options each have a reason in the comments; `references/composition-root.md` (Scalar) lists what else exists.
+The OpenAPI document and the Scalar UI that renders it, in one place.  Both are public and Development-only: `MapOpenApi` and Scalar sit outside the secured route groups, so a deployed environment never serves them (the build still writes the document).  `IsGeneratingDocument` is here because it is an OpenAPI fact: the build-time generator runs this host.  Scalar's options each have a reason in the comments; `hg-mdn-backend`, `references/openapi-contract.md` (Scalar) lists what else exists.
 
 ```csharp
 using System.Reflection;

@@ -109,7 +109,7 @@ services
 - `ValidateOnStart()` is what makes `Validate(...)` eager.
 - One predicate and one clear message per rule (`AppSettings:Limits:MaxNotes must be greater than zero.`).
 - Inject `IOptions<AppSettings>` (or `IOptionsMonitor<AppSettings>` when values may change at runtime) into handlers and services; do not read `IConfiguration` outside startup code.
-- Needed before the container exists (for example to choose a provider)?  `builder.Configuration.GetSection(nameof(AppSettings)).Get<AppSettings>()` once in `Program.cs`, passed into the `Add<PROJECT>X` call that needs it.
+- Needed before the container exists (for example to choose a provider)?  Pass `builder.Configuration` into the `Add<PROJECT>X` call that needs it and read the section there: `configuration.GetSection(nameof(AppSettings)).Get<AppSettings>()`.  `Program.cs` holds no configuration reads (`composition-root.md`).
 - Another settings class: one more `AddOptions<T>()` in `SettingsSetup` (`composition-root.md`).
 
 ## Secrets

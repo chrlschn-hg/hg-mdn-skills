@@ -110,57 +110,38 @@ A concern that only the runtime needs: a hosted service, a health-check set, an 
 4. Used by a second host or a test?  Move the class to a package.
 5. Test it with a small host that calls only that concern (`OpenApiSetupTests` is the model).
 
-## Add a slice
+## A slice's own services
 
-A slice that needs only endpoints and handlers needs no `Setup` code: `Add<PROJECT>Endpoints` finds them (`feature-slices.md`).
+A slice that needs only endpoints and handlers needs no `Setup` code: `Add<PROJECT>Endpoints` finds them.  The steps to add a slice are in `feature-slices.md` ("Add a slice").
 
-1. Add the `ProjectReference` from the runtime csproj to the slice.
-2. The slice needs services of its own (options, a client, a background job)?  Add `<Slice>Setup.cs` to the slice, with `Add<PROJECT><Slice>()`:
+A slice that needs services of its own (options, a client, a background job) has `<Slice>Setup.cs` with `Add<PROJECT><Slice>()`, and the runtime adds one `.Add<PROJECT>Invoicing()` call to the chain in `Program.cs`:
 
-   ```csharp
-   public static class InvoicingSetup
-   {
-       extension(IServiceCollection services)
-       {
-           /// <summary>Registers the invoice number generator.</summary>
-           public IServiceCollection Add<PROJECT>Invoicing() =>
-               services.AddSingleton<IInvoiceNumbers, InvoiceNumbers>();
-       }
-   }
-   ```
+```csharp
+public static class InvoicingSetup
+{
+    extension(IServiceCollection services)
+    {
+        /// <summary>Registers the invoice number generator.</summary>
+        public IServiceCollection Add<PROJECT>Invoicing() =>
+            services.AddSingleton<IInvoiceNumbers, InvoiceNumbers>();
+    }
+}
+```
 
-3. Add `.Add<PROJECT>Invoicing()` to the chain in `Program.cs`.
-4. The slice needs a store?  The line `AddScoped<I<Thing>Store, <Thing>Store>()` goes in `DataSetup`, not in the slice (`data-efcore.md`).
-5. The slice needs a setting?  Add the class to `<PROJECT>.Config`, then one `AddOptions<T>()` to `SettingsSetup` (`configuration.md`).
+- A store: the line `AddScoped<I<Thing>Store, <Thing>Store>()` goes in `DataSetup`, not in the slice (`data-efcore.md`).
+- A setting: add the class to `<PROJECT>.Config`, then one `AddOptions<T>()` to `SettingsSetup` (`configuration.md`).
 
 ## OpenAPI generation
 
 `dotnet build` writes the OpenAPI document into `src/app/src/api` (`openapi-contract.md`).  The tool (`Microsoft.Extensions.ApiDescription.Server`) runs the **whole** entry point under an assembly named `GetDocument.Insider`.  It runs `Build()`, the startup code, hosted services, and `app.Run()`, with a no-op server and no database.  It writes the document once the host reports started.
 
-- **Registration needs no infrastructure.**  `Add<PROJECT>Data` reads the connection string when the first `DbContext` is built, not when it registers.  Do the same for any client or option that needs a secret or a network.
+- **Registration needs no infrastructure.**  `Add<PROJECT>Data` reads the connection string when the first `DbContext` is built, not when it registers.  Do the same for any client or option that needs a secret or a network.  Handlers are fine: they resolve at request time.
 - **Startup work needs one guard.**  `StartupSetup` returns first when `OpenApiSetup.IsGeneratingDocument` is true.  This is the only branch on it in the runtime.  Put every step after it.
 - **Why not skip in `Program.cs`?**  A guard around each call spreads and gets forgotten.  A hosted service is the same: it runs in generation too, so it either checks `IsGeneratingDocument` or is registered behind a method that does.
 
 Check with `dotnet build src/backend/runtime` (or `mise run openapi`) and read the diff of `<project>-api.json`.
 
-## Scalar
-
-`Map<PROJECT>OpenApi()` (`OpenApiSetup`) serves the OpenAPI document (`/openapi/v1.json`) and Scalar (`/scalar`, which redirects to `/scalar/`) in Development only.  Both sit outside the secured groups and are public by design, so no deployed environment may serve them.  `AddOpenApi` and Scalar live in the one class so a change to the document and to its viewer is one edit.
-
-Options set, and why:
-
-| Option | Reason |
-|---|---|
-| `WithTitle("<PROJECT> API")` | The browser tab and the page header name the product, not `v1`. |
-| `ShowOperationId()` | The operation id is the `WithName` value, which is the name of the generated client function.  A reader finds the call to use in the front-end. |
-
-Add an option only with a reason.  The other 2.x options (`ExpandAllTags()`, `WithDefaultHttpClient(...)`, `SortTagsAlphabetically()`, `ForceDarkMode()`, `AddServer(...)`) are cosmetic or answer a question this API does not ask.  Full list: <https://scalar.com/products/api-references/integrations/aspnetcore/integration>.
-
-**"Try it out" works in Development.**  The placeholder authentication signs in the configured development user on every request (`Security:DevelopmentUser`), so Scalar calls `/api/me` with no token and gets 200.  Outside Development the same call answers 401, and Scalar is not served there.
-
-**When a real authentication scheme replaces the placeholder:** declare the scheme in the OpenAPI document with a document transformer.  Scalar only offers schemes the document defines.  Then name it with `AddPreferredSecuritySchemes("<scheme>")` in `Map<PROJECT>OpenApi`.  Do not pre-fill a token with `AddHttpAuthentication`; the page shows it to anyone who can open it.
-
-**The Aspire dashboard:** the AppHost gives the `app-backend` resource a link to `/scalar` (`aspire-host.md`).  Change both together if the route moves.
+`Map<PROJECT>OpenApi()` serves the document and Scalar in Development only: `openapi-contract.md` ("Scalar").
 
 ## What goes wrong
 
@@ -168,5 +149,4 @@ Add an option only with a reason.  The other 2.x options (`ExpandAllTags()`, `Wi
 |---|---|
 | `dotnet build` fails in `GenerateOpenApiDocuments` with `Connection string '<project>' is missing` | Startup work runs without the guard.  Put the step in `StartupSetup` after the `IsGeneratingDocument` return. |
 | A test host in Development fails to build with `Unable to resolve service for type 'BuildInfo' ... HealthHandler` | Development validates the whole container on build, and the test registers only one concern.  Set `builder.Host.UseDefaultServiceProvider(o => o.ValidateOnBuild = false)` in that test host. |
-| `/scalar` answers 404 | The environment is not Development.  This is the rule, not a defect. |
 | `Serilog.Log.ForContext<T>()` does not compile in a setup class | `T` cannot be a static class.  Use `Serilog.Log.ForContext(typeof(<Class>))`. |

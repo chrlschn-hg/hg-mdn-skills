@@ -35,12 +35,7 @@ Why the build time is Release only: a timestamp changes the assembly on every bu
 
 `BuildInfo` (`<PROJECT>.Health/BuildInfo.cs`, in the Health slice so it has a test project; file in `hg-mdn-scaffold`, `references/backend-templates.md`) parses the informational version at the first `+` and reads the metadata; a missing or malformed stamp degrades to `unknown` or null instead of throwing.  The runtime registers one instance in `Program.cs`, passes its version to telemetry (`TelemetryConfig.ServiceVersion`), and logs it at startup:
 
-```csharp
-var buildInfo = BuildInfo.From(typeof(Program).Assembly);
-builder.Services.AddSingleton(buildInfo);
-```
-
-The health handler maps it onto its own contract record (`BuildResponse`), so the API shape does not depend on how the stamp is stored.
+`Program.cs` calls `BuildInfo.From(typeof(Program).Assembly)` once and registers the result as a singleton (`composition-root.md`).  The health handler maps it onto its own contract record (`BuildResponse`), so the API shape does not depend on how the stamp is stored.
 
 ## In the image
 

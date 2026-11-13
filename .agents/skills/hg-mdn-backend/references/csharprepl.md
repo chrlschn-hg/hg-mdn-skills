@@ -37,7 +37,7 @@ Use `NO_COLOR=1` for parseable output.  Multi-line C#, `using` directives, and t
 
 If you skipped scaffold step 10:
 
-1. Copy `DebugRepl.cs` from the [scaffold template](../../hg-mdn-scaffold/references/backend-templates.md) to `src/backend/runtime/`.  Keep `namespace <PROJECT>;`.
+1. Copy `DebugRepl.cs` from the scaffold template (`hg-mdn-scaffold`, `references/backend-templates.md`) to `src/backend/runtime/`.  Keep `namespace <PROJECT>;`.
 2. Enable the hook as described above.  The file needs no registration and no startup code, and it is inert until a REPL calls it.
 3. Keep the hook in Development only.  The startup-hook variables, not the file, allow attachment, and a Production process accepts attachment when they are set.  The Aspire template sets them in Run mode with no environment check: run the backend with Development settings, and never set them in production.
 
