@@ -1,6 +1,6 @@
 # Debugging with the Aspire CLI
 
-Read logs, spans, and traces of the running app from the terminal: no dashboard UI needed. The stack is started with `mise run up` (detached) and stopped with `mise run down`. Resource names come from `host/AppHost.cs`: `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`, `postgres`; `app-proxy` is optional.
+Read logs, spans, and traces of the running app from the terminal: no dashboard UI needed.  The stack is started with `mise run up` (detached) and stopped with `mise run down`.  Resource names come from `host/AppHost.cs`: `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`, `postgres`; `app-proxy` is optional.
 
 ## Commands
 

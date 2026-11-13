@@ -35,7 +35,9 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - For setup not documented here, follow the technology's docs (look for `llms.txt`)
 - XML sections in this document are blocks that appear elsewhere in it
 - Full file templates live in `references/`; each step names the file.  Create the files from the templates, replace the placeholders, adjust to the user's answers.  Do not invent a different layout
-- Ports: pin only the backend port; Aspire assigns the front-end and LibreDB ports (`aspire describe`). The optional app proxy uses port 80 by default; set `APP_ORIGIN_PROXY_PORT` to use another port (`references/aspire-host.md`)
+- **Zero warnings by default:** `TreatWarningsAsErrors` in `src/backend/Directory.Build.props` and in `host/host.csproj`.  Never dismiss a warning by default: fix the cause.  An agent may suppress one id, narrowly and with a reason, case by case (`#pragma` pair, `.editorconfig`, or `NoWarn`); never turn the setting off (`hg-mdn-backend`, `references/static-analysis.md`)
+- **Central package management by default:** versions live only in `Directory.Packages.props` (`src/backend/` and `host/`); csproj files use bare `PackageReference`; add packages with `dotnet add package`, never an inline `Version` (`NU1008`)
+- Ports: pin only the backend port; Aspire assigns the front-end and LibreDB ports (`aspire describe`).  The AppHost's dashboard, OTLP, and resource-service ports are fixed in `host/Properties/launchSettings.json`: change them if they collide.  The optional app proxy uses port 80 by default; set `APP_ORIGIN_PROXY_PORT` to use another port (`references/aspire-host.md`)
 - Do not commit or push unless the user asks
 - Leave terse, direct comments in the artifacts: the reasoning, where related files are, links
 </rules>
@@ -100,7 +102,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Skip if the user uses neither devcontainers nor Codespaces
 6. Set up the .NET web API (templates: `references/backend-templates.md`, `references/data-templates.md`)
   - Create `src/app/src/api/` first (the template's `README.txt`): the build writes the OpenAPI document there
-  - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need); shared properties in `src/backend/Directory.Build.props`; `src/backend/Directory.Build.targets` adds the `Should()` assertion package to every project that references `TUnit`
+  - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need; bare `PackageReference` in every csproj); shared properties in `src/backend/Directory.Build.props`; `src/backend/Directory.Build.targets` adds the `Should()` assertion package to every project that references `TUnit`
   - Layout under `src/backend`, every project in `<project>.slnx` (folders mirror directories):
     - `runtime/<PROJECT>.Runtime.csproj`: the web host; keep it lean, business logic goes in feature packages; one `ProjectReference` per slice; writes OpenAPI (path relative to the csproj directory) and serves Scalar in Development; `Program.cs` only calls the setup classes (`Setup/`: settings, OpenAPI + Scalar, startup)
     - `packages/<PROJECT>.Config` (`AppSettings.cs`: the strongly typed `public record class` settings), `.Api` (endpoint contracts, discovery, `Security/`, `SpaSetup`), `.Telemetry`
@@ -114,7 +116,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Every endpoint gets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` lints the OpenAPI document, so a missing one fails `mise run test` and CI, not `dotnet build` (`hg-mdn-backend`, `references/openapi-contract.md`)
   - Composition root (`hg-mdn-backend`, `references/composition-root.md`): `Program.cs` is a table of contents, one `Add<PROJECT>X` / `Use<PROJECT>X` / `Map<PROJECT>X` call per concern.  The build runs the whole host to write OpenAPI, so registrations stay free of infrastructure and `StartupSetup` skips its work in that mode (`OpenApiSetup.IsGeneratingDocument`)
   - No migration ships: the first entity needs `dotnet ef migrations add` (`hg-mdn-backend`, `references/data-efcore.md`), and the Zeeq Biome test setup arrives with it: `Zeeq.Biome*` references in `<PROJECT>.Testing` (already versioned in `Directory.Packages.props`), the seed, `TestBiome`, and blueprints in `<PROJECT>.Testing/Biome/`, then its agent skills (`hg-mdn-backend`, `references/zeeq-biome.md`)
-  - Zero tolerance: `TreatWarningsAsErrors` in `Directory.Build.props`; raising `AnalysisLevel`, banned APIs, and custom analyzers are per-project choices (`hg-mdn-backend`, `references/static-analysis.md`)
+  - Zero tolerance: `TreatWarningsAsErrors` in `Directory.Build.props` (and `host.csproj`); fix warnings, suppress one id at a time with a reason, only when the rule is wrong for that case.  Raising `AnalysisLevel`, banned APIs, and custom analyzers are per-project choices (`hg-mdn-backend`, `references/static-analysis.md`)
   - Verify: `dotnet build` reports 0 warnings and writes `src/app/src/api/<project>-api.json`; `dotnet test --solution <project>.slnx` passes (database tests need Docker)
 7. Set up the front-end in `src/app` (templates: `references/frontend-templates.md`)
   - Vite, Vue 3 (Composition API), Nuxt UI (<https://ui.nuxt.com/llms.txt>) through its Vite plugin, TypeScript 6.x only (`vue-tsc` does not support 7; `hg-mdn-frontend`, `references/project-structure.md`)
@@ -132,7 +134,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Verify: `npm run lint && npm run fmt:check && npm test && npm run build`
   - `AGENTS.md` ("API generation") already states the flow C# endpoints -> OpenAPI document -> Kubb; confirm it matches
 9. Set up Aspire with C# (templates: `references/aspire-host.md`)
-  - `host/` holds the AppHost; add it to the `.slnx`
+  - `host/` holds the AppHost; add it to the `.slnx`.  Like `src/backend`, it starts with `TreatWarningsAsErrors` and its own `host/Directory.Packages.props` (the Aspire SDK in `host.csproj` and every `Aspire.Hosting.*` version move together)
   - Resources, whose names are a contract for the `aspire` commands and the skills: `postgres` (with its database and psql REPL), `app-backend` (dashboard link to Scalar), `app-frontend` (Vite; match `WithNpm()` to the package manager; `.WithReference(backend)` gives its `/api` proxy the backend URL), `kubb-generate-watch`, `libredb` (database UI with a seeded connection); optional `app-proxy` gives the app one origin
   - Aspire CLI: `aspire --version` in the same version line as the host SDK
   - Agent skills: `aspire agent init --skill-locations standard --skills aspire-orchestration,aspire-monitoring` (flags per `aspire agent init --help`; if a name is rejected, choose the orchestration and monitoring skills in the prompt)
