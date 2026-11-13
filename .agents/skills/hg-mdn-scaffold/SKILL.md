@@ -36,7 +36,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - XML sections in this document are blocks that appear elsewhere in it
 - Full file templates live in `references/`; each step names the file.  Create the files from the templates, replace the placeholders, adjust to the user's answers.  Do not invent a different layout
 - **Zero warnings by default:** `TreatWarningsAsErrors` in `src/backend/Directory.Build.props` and in `host/host.csproj`.  Never dismiss a warning by default: fix the cause.  An agent may suppress one id, narrowly and with a reason, case by case (`#pragma` pair, `.editorconfig`, or `NoWarn`); never turn the setting off (`hg-mdn-backend`, `references/static-analysis.md`)
-- **Central package management by default:** versions live only in `Directory.Packages.props` (`src/backend/` and `host/`); csproj files use bare `PackageReference`; add packages with `dotnet add package`, never an inline `Version` (`NU1008`)
+- **Central package management by default:** versions live only in `Directory.Packages.props` (`src/backend/` and `host/`); csproj files use bare `PackageReference`; add packages with `dotnet add package <id> --project <csproj>`, never an inline `Version` (`NU1008`)
 - Ports: pin only the backend port; Aspire assigns the front-end and LibreDB ports (`aspire describe`).  The AppHost's dashboard, OTLP, and resource-service ports are fixed in `host/Properties/launchSettings.json`: change them if they collide.  The optional app proxy uses port 80 by default; set `APP_ORIGIN_PROXY_PORT` to use another port (`references/aspire-host.md`)
 - Do not commit or push unless the user asks
 - Leave terse, direct comments in the artifacts: the reasoning, where related files are, links
