@@ -12,7 +12,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 - Mise (<https://mise.jdx.dev/llms.txt>): runtime dependencies (SDKs, CLIs, tools) and tasks (`mise run <task>`)
 - Aspire (<https://aspire.dev/llms.txt>): local orchestration of containers and system dependencies (Postgres, SQL Server, Redis, emulators, runtime commands, package installs)
 - Kubb.dev (<https://kubb.dev/llms.txt>): TypeScript client and Zod schemas from the OpenAPI document the backend build writes
-- Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI at `/scalar`, Development only, set up beside the OpenAPI document in `OpenApiSetup`
+- Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI at `/scalar`, Development only, set up beside the OpenAPI document in `OpenApiSetup` (`hg-mdn-backend`, `references/openapi-contract.md`)
 - Testcontainers (<https://dotnet.testcontainers.org/>): integration test infrastructure
 - One container image: the runtime serves the built front-end at `/` and the API under `/api`; the build stamps the version and commit the app reports
 - TUnit (<https://tunit.dev/llms.txt>) on Microsoft Testing Platform (<https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-intro>) for tests, asserting with the `Should()` syntax (`TUnit.Assertions.Should`, a beta package); **never xUnit**

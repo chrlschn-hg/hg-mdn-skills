@@ -16,7 +16,7 @@ They correlate automatically: a log written while an `Activity` is running (insi
 // In a handler: a span, a linked log, and an auto-instrumented child span
 using var activity = <PROJECT>Telemetry.Trace(tags: [("endpoint", "health")], traceName: "HealthCheck");
 Log.Here().Information("Health check requested!");       // linked to the HealthCheck span
-await db.Database.ExecuteSqlRawAsync("SELECT 1");         // EF Core instrumentation emits a child span
+await store.CountAsync(ct);                               // the store's EF Core call emits a child span
 ```
 
 ## Logging

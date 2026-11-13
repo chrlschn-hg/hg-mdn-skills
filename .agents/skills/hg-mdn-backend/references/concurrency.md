@@ -80,7 +80,7 @@ Producers and one consumer.  The producers compute facets (messages) concurrentl
 - **Start the consumer first**; do not await it until the producers finish.
 - **Always complete the writer**, and complete it **with the exception** when a producer fails (`Writer.Complete(ex)`); otherwise the consumer waits forever.
 - **Read with `await foreach (... in reader.ReadAllAsync(ct))`**: it ends when the writer completes.
-- **Model the message as a closed set of records** (an abstract record with sealed subtypes) and handle it with a switch that throws on unknown types: the compiler cannot prove exhaustiveness over an open hierarchy, so the `_` arm is required.
+- **Model the message as a `closed` record hierarchy** and handle it with a switch that has a `null` arm and no `_`: the compiler proves exhaustiveness, so a new message type breaks the build (`unions-and-closed-hierarchies.md`).
 - **Thread-safe collection for shared results** (`ConcurrentDictionary`, `ConcurrentBag`) when `Parallel.ForEachAsync` bodies write to one; a plain `List<T>` or `+=` races.
 - **Pass the `CancellationToken`** to every awaited call and to `ParallelOptions`.
 - **No `Task.Run`** in request code: it only moves I/O-bound work to another thread, and work that outlives the request runs after its scoped services and cancellation token are gone.  Background work belongs in a hosted service reading from a channel.  **No `.Result` / `.Wait()`** outside the REPL and tests.

@@ -161,6 +161,8 @@ public static class NotesBlueprints
 - Entities are **created immediately**, so `out` variables are usable at once; `BuildAsync()` saves.  Every Add takes an `out` (`out _` when unused).  Prefer the singular graft (`AddNote(out var note)`) to `notes[0]`.
 - A **trait** is a named `Action<T>` passed as a customizer.  **A comma makes a new entity; `+` stacks traits on one entity.**
 
+Illustrative (not compiled):
+
 ```csharp
 public static class NoteTraits
 {
@@ -172,7 +174,7 @@ public static class NoteTraits
 .AddNotes(out var notes, NoteTraits.LongBody, NoteTraits.LongBody + NoteTraits.Unfiled)
 ```
 
-- Biome never creates a missing ancestor.  A chain that repeats across tests becomes a **scenario helper** on the seed, with every step visible in its definition:
+- Biome never creates a missing ancestor.  A chain that repeats across tests becomes a **scenario helper** on the seed, with every step visible in its definition (illustrative, not compiled):
 
 ```csharp
 public static class NotesScenarioHelpers
@@ -341,7 +343,7 @@ A timestamp the code under test creates (a store that stamps `UtcNow`) is not Bi
 
 Declare the sequence once, above the blueprint that uses it (static fields initialize top to bottom; keep a blueprint and its variants in one file), and fill the property with `Derive`.  `.Per<TAncestor>()` scopes it to the nearest ancestor of a type, `.PerSession()` is the default.
 
-An example catalog member (a ticket numbered within its project):
+An example catalog member (a ticket numbered within its project; illustrative, not compiled):
 
 ```csharp
 // Declared above the blueprint that uses it: static fields initialize top to bottom.
@@ -404,7 +406,7 @@ EF saves anything reachable through a navigation from a saved row, transient or 
 
 ## Seeds, tenancy, and defaults
 
-The seed is created outside the session (so it cannot use `ctx.Now`) and can be any shape.  Rows in it are saved before the created entities if listed in `SeedEntities`, in foreign-key-safe order, and then count as parents for `.Under(seed.Tenant)`.  A **multi-tenant** app puts the tenant in the seed and every blueprint stamps it (`data-efcore.md`, "Multi-tenant data"):
+The seed is created outside the session (so it cannot use `ctx.Now`) and can be any shape.  Rows in it are saved before the created entities if listed in `SeedEntities`, in foreign-key-safe order, and then count as parents for `.Under(seed.Tenant)`.  A **multi-tenant** app puts the tenant in the seed and every blueprint stamps it (`data-efcore.md`, "Multi-tenant data"; illustrative, not compiled):
 
 ```csharp
 public sealed record TenantSeed(Tenant Tenant); // the row, and the id every blueprint stamps
@@ -425,7 +427,7 @@ Options also hold `Default<TBase, TProp>(e => e.Prop, (e, ctx) => ...)`, a fill-
 
 ## Init-only entities: input blueprints
 
-A customizer cannot assign an `init` property (`CS8852`), and production models should not change to suit tests.  An **input blueprint** moves customization earlier: the test customizes a small settable input, `Derive` fills the input, and the factory builds the row.  It also builds one input into several rows (an aggregate: an output that implements `IBiomeAggregate`).  Needs `Zeeq.Biome` 1.1.0; use a plain blueprint for a settable entity.
+A customizer cannot assign an `init` property (`CS8852`), and production models should not change to suit tests.  An **input blueprint** moves customization earlier: the test customizes a small settable input, `Derive` fills the input, and the factory builds the row.  It also builds one input into several rows (an aggregate: an output that implements `IBiomeAggregate`).  Needs `Zeeq.Biome` 1.1.0; use a plain blueprint for a settable entity.  Illustrative (not compiled):
 
 ```csharp
 public sealed class Receipt // init-only: a customizer cannot assign these
@@ -490,17 +492,4 @@ Biome is for **preconditions**: rows the test needs but is not about.  It is not
 
 ## Moving from a hand-written builder
 
-A hand-rolled entity-graph builder (a fluent builder with `*Prototype` classes or a `SeedContext`) maps one to one:
-
-| Hand-written builder | Zeeq Biome |
-|---|---|
-| `AddGeneratedSeed(_context)` and a `SeedContext` | `TestBiome.Start(_context, out var seed)`; the old seed can be the seed type |
-| a `*Prototype` class plus `Create*` and overloads | one blueprint, `Derive`s, and generated grafts; an input blueprint where the entity is `init`-only |
-| `FindLatest<T>(...)` to find a parent | a child blueprint's typed parent and `ctx.Ancestor<T>()` |
-| `index + 1` numbering | a sequence with `Derive` |
-| `PersistOnBuild = false` / `NotPersisted()` | `.Transient()` |
-| `var (seed, notes) = await ...BuildAsync()` | `out` variables; `BuildAsync()` returns nothing |
-| a result record that implements an `IEntityGraph` | an input blueprint with an `IBiomeAggregate` output |
-| `DateTimeOffset.UtcNow` and `TruncateToPostgresPrecision()` | `ctx.Now` (rounded) or a shared `FakeTimeProvider` |
-
-Both can live side by side until the last call site has moved.  The library's `zeeq-biome-blueprints` skill has a step-by-step migration guide (its `migration-from-entitygraph` reference).  Then delete the builder, its extensions, and its tests.
+Move a hand-rolled entity-graph builder (`*Prototype` classes, a `SeedContext`) one call site at a time; both can live side by side until the last call site has moved.  The library's `zeeq-biome-blueprints` skill has the step-by-step guide (its `migration-from-entitygraph` reference).  Then delete the builder, its extensions, and its tests.
