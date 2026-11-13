@@ -5,7 +5,7 @@ A feature slice is one project that owns a capability end to end: domain types, 
 ## Dependency direction
 
 ```text
-Runtime ──► slices, Api, Telemetry, Config, Data   (wires everything; no business logic)
+Runtime ──► slices, Api, Telemetry, Config, Data   (wires everything through Setup classes; no business logic)
 Data    ──► slices                                 (implements the stores that slices define)
 slices  ──► Api, Telemetry                         (never Data, never Runtime, never another slice's internals)
 tests   ──► the project under test (+ <PROJECT>.Testing: Zeeq Biome setup, fixtures)
@@ -48,7 +48,7 @@ Conventions:
 Test first: the first test of a slice is a handler test.
 
 1. Create `<PROJECT>.<Slice>/<PROJECT>.<Slice>.csproj` (template below) and the `.Tests` project; add both to `<project>.slnx`.
-2. Add a `ProjectReference` to the slice in `<PROJECT>.Runtime.csproj`.  Nothing else is needed for routing: `Add<PROJECT>Endpoints` scans for `IEndpoint` and `IEndpointHandler`, and security comes with the group the slice is mapped onto (`route-security.md`).
+2. Add a `ProjectReference` to the slice in `<PROJECT>.Runtime.csproj`.  Nothing else is needed for routing: `Add<PROJECT>Endpoints` scans for `IEndpoint` and `IEndpointHandler`, and security comes with the group the slice is mapped onto (`route-security.md`).  A slice that needs services of its own adds `Add<PROJECT><Slice>()` and one call in `Program.cs` (`composition-root.md`).
 3. Write the domain type and `I<Thing>Store`.
 4. Add `<Slice>Blueprints.cs` to `<PROJECT>.Testing/Biome/` (it needs a `ProjectReference` to the slice; `zeeq-biome.md`), then write the failing handler test with a fake store (`testing.md`).
 5. Write contracts, handler, mapping, and the endpoint with `WithName`, `WithSummary`, `WithDescription` (`endpoints.md`, `openapi-contract.md`) until the test passes.

@@ -32,6 +32,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - Read the reference(s) for the work (index below) **before** writing code; copy the shape of an existing slice rather than inventing a layout
 - Business logic goes in feature slices, never the runtime project.  Slices depend on `<PROJECT>.Api`, `<PROJECT>.Telemetry`, and interfaces they define; never on EF Core, `<PROJECT>.Data`, or another slice's internals
 - **Security comes from the group** (`references/route-security.md`).  Slices map onto the secured root group (signed-in users; write no `RequireAuthorization()`), or onto `/admin` with `IAdminEndpoint` (404 for non-admins).  Tenant scope is a group guard; roles and state checks go on the route, cheap guard first.  Opening a route needs `AllowAnonymous()`, a `// NOTE:`, and a line in `RouteSecurityLintTests`
+- **`Program.cs` is a table of contents:** one `Add<PROJECT>X` / `Use<PROJECT>X` / `Map<PROJECT>X` call per concern, each in its own static setup class (packages, or `runtime/Setup/`); no `if`, no inline configuration.  Registrations never need infrastructure and startup work sits behind `StartupSetup`'s guard, because the OpenAPI build runs the whole host without a database (`references/composition-root.md`)
 - **One origin:** the API is mapped under `/api` and the runtime serves the built front-end (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`): no CORS, one container image (`references/spa-hosting.md`).  The build stamps the version and commit the app reports (`references/build-info.md`)
 - Authentication is a project choice behind one seam (`Add<PROJECT>Authentication`): Development signs in a configured user; elsewhere secured routes answer 401 until a real scheme replaces the placeholder
 - Handlers return `Results<...>` of `TypedResults`; expected failures are `ApiError` results with a distinct `snake_case` code; validate with explicit guard clauses (DataAnnotations on contracts are OpenAPI metadata, not enforced)
@@ -54,6 +55,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 | When you are | Read |
 |---|---|
 | adding a slice or deciding where code goes | `references/feature-slices.md` |
+| wiring: what goes in `Program.cs` and `Setup/`, service lifetimes, adding a concern or a slice's services, OpenAPI generation, Scalar | `references/composition-root.md` |
 | writing endpoints, handlers, contracts, error results | `references/endpoints.md` |
 | securing routes (groups, guards, roles, anonymous routes, the authentication seam) | `references/route-security.md` |
 | writing endpoint descriptions, changing the API the front-end calls, or fixing a failing OpenAPI build | `references/openapi-contract.md` |

@@ -69,7 +69,7 @@ public static class RouteGroups
 ```
 
 - A slice's `MapEndpoints` receives `root` (or `admin` when it implements `IAdminEndpoint`), so `endpoints.MapGet("/notes", ...)` is authenticated with no attribute.  Securing a route cannot be forgotten; **opening** one is deliberate.
-- Mapped outside the root group and public on purpose: `MapOpenApi` and the Scalar UI (Development only, in `Program.cs`), and the front-end's static files and fallback (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`: the shell loads before anyone signs in; `references/spa-hosting.md`).
+- Mapped outside the root group and public on purpose: `MapOpenApi` and the Scalar UI (Development only, in `Map<PROJECT>OpenApi`, `references/composition-root.md`), and the front-end's static files and fallback (`Use<PROJECT>Spa`, `Map<PROJECT>SpaFallback`: the shell loads before anyone signs in; `references/spa-hosting.md`).
 - The API is mapped under `/api`, and an unmatched-route catch-all under it is `AllowAnonymous()`, so a typo is a JSON 404 for everyone, not a 401 and never the SPA's `index.html`.
 
 ## Opting out: `AllowAnonymous`
@@ -198,7 +198,7 @@ Name the role in the endpoint's `WithDescription` when it is not the default (si
 
 Replacing the placeholder changes nothing else: the groups, guards, and policies already apply.  The scheme must produce the role and tenant claims the policies and guards read.
 
-- **Pipeline order** in `Program.cs`: exception handler, the front-end's static files (`Use<PROJECT>Spa()`), request logging, `Use<PROJECT>Security()`, the mapped API, then the SPA fallback.
+- **Pipeline order** in `Program.cs`: exception handler, the front-end's static files (`Use<PROJECT>Spa()`), request logging, `Use<PROJECT>Security()`, OpenAPI and Scalar (`Map<PROJECT>OpenApi()`), the mapped API, then the SPA fallback (`references/composition-root.md`).
 - **Cookie auth** works as is: the front-end is same-origin, so cookies need no CORS.  Only a front-end hosted apart needs credentialed CORS: `hg-mdn-frontend`, `references/config-deploy.md`.
 - **Roles that can change mid-session:** load them per request in middleware between `UseAuthentication()` and `UseAuthorization()` and add them to the principal; never trust a stale token.  Do not reject there: policies and guards reject, so recovery routes (`GET /me`) stay reachable.
 
