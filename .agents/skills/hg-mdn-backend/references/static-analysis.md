@@ -33,7 +33,7 @@ A suppression is a decision, not a shortcut.  The agent decides per warning: is 
 
 | Scope | Mechanism | The reason goes |
 |---|---|---|
-| One site | `#pragma warning disable <id>` + `restore`, or `[SuppressMessage]` with `Justification` | on the `disable` line |
+| One site | `#pragma warning disable <id>` + `restore` (compiler `CS…` and analyzer ids).  `[SuppressMessage]` covers analyzer ids (`CA…`, `IDE…`) only: it does **not** stop a `CS…` warning | on the `disable` line; `Justification` for `[SuppressMessage]` |
 | One rule, whole repo or folder | `dotnet_diagnostic.<id>.severity` in `.editorconfig` (example below) | comment above the line |
 | One id, one project | `<NoWarn>$(NoWarn);<id></NoWarn>` in the `.csproj` or `Directory.Build.props` (example below) | XML comment |
 

@@ -243,7 +243,7 @@ Fill the title line and the context sentences from the user's answers; the rest 
 - Plans, specs, and work logs live in `.agents/plans`; throwaway agent output goes in `.agents/scratch` (git-ignored)
 - Do not commit or push unless asked.  Stacked branches and PRs go through `st` (stax: `st create -am`, `st modify -a`, `st submit`; see the `stax` skill); `st ci --watch --strict` watches CI.  Commit messages are conventional: `feat(area): Sentence-case description` (also `fix`, `chore`, `refactor`, `docs`, `test`); one dense word for the area
 - Warnings are errors (`src/backend` and `host`).  Fix the cause.  Suppress a warning only case by case, when the rule is wrong for that case: one id, narrowest scope (`#pragma` pair, `.editorconfig`, or `NoWarn`), with the reason; never to finish a task
-- NuGet versions live only in `Directory.Packages.props` (`src/backend` and `host`).  Add packages with `dotnet add package`; never write an inline `Version`
+- NuGet versions live only in `Directory.Packages.props` (`src/backend` and `host`).  Add packages with `dotnet add package <id> --project <csproj>`; never write an inline `Version`
 - Before handing work back: `mise run check` passes (build, front-end type check, lint, format check, all tests; database tests need Docker) and the build reports no new warnings (it enforces braces and exhaustive enum switches)
 
 ## Tooling

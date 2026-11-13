@@ -19,7 +19,7 @@ Notes:
   AppHost's dashboard, OTLP, and resource-service ports in `host/Properties/launchSettings.json`; change
   them when another AppHost on the machine already uses them.  The front-end and LibreDB ports are assigned
   by Aspire: never pin them (`aspire describe`).  The optional app proxy uses port 80 by default; only one checkout can use that port at a time.
-- **Resource names** are a contract (`aspire` commands, AGENTS.md, the backend skill's `references/debugging-aspire.md`):
+- **Resource names** are a contract (`aspire` commands, AGENTS.md, `hg-mdn-backend`, `references/debugging-aspire.md`):
   `postgres`, `app-backend`, `app-frontend`, `kubb-generate-watch`, `libredb`; `app-proxy` appears when enabled.
 - LibreDB login: `admin@libredb.org` / `P@ssw0rd`.  The credentials are fixed on purpose, like the Postgres ones:
   LibreDB is local-only and the values are public.  The Postgres connection is seeded and managed (locked in the UI).
@@ -212,7 +212,8 @@ if (useAppOriginProxy)
 // LibreDB (database UI).  Open the "libredb" resource endpoint in the Aspire dashboard.
 //   Login: admin@libredb.org / P@ssw0rd
 // Fixed credentials, like Postgres above: LibreDB is local-only, so a known value costs nothing and nobody
-// has to look a generated one up.
+// has to look a generated one up.  Without `STORAGE_ENCRYPTION_KEY`, the SQLite store seals saved connection
+// passwords with the JWT secret: public here, so treat the volume as plain text (it holds only local values).
 // The connection is seeded from `libredb/seed-connections.yaml`; SQLite stores saved queries and history.
 var libredbPassword = builder.AddParameter("libredb-admin-password", "P@ssw0rd", secret: true);
 var libredbJwtSecret = builder.AddParameter(
@@ -229,7 +230,6 @@ var libredb = builder
     .WithEnvironment("ADMIN_PASSWORD", libredbPassword)
     .WithEnvironment("JWT_SECRET", libredbJwtSecret)
     .WithEnvironment("AUTH_BOOTSTRAP", "off")
-    .WithEnvironment("AUTH_COOKIE_SECURE", "false")
     .WithEnvironment("SEED_CONFIG_PATH", "/app/config/seed-connections.yaml")
     .WithEnvironment("APP_DB_URI", db.Resource.UriExpression)
     .WithEnvironment("STORAGE_PROVIDER", "sqlite")
@@ -242,6 +242,12 @@ var libredb = builder
     .WithParentRelationship(db)
     .WaitFor(db);
 libredb.WithVolume(VolumeNameGenerator.Generate(libredb, "data"), "/app/data");
+
+// Safari refuses a `Secure` cookie on plain-HTTP localhost.  Codespaces forwards HTTPS: keep the default there.
+if (builder.Configuration["CODESPACE_NAME"] is not { Length: > 0 })
+{
+    libredb.WithEnvironment("AUTH_COOKIE_SECURE", "false");
+}
 
 // LibreDB checks the request origin against Host. Set this only when a proxy rewrites Host and drops x-forwarded-host.
 if (builder.Configuration["LIBREDB_ALLOWED_ORIGINS"] is { Length: > 0 } allowedOrigins)
