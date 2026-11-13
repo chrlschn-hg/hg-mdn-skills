@@ -138,7 +138,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Agent skills: `aspire agent init --skill-locations standard --skills aspire-orchestration,aspire-monitoring` (flags per `aspire agent init --help`; if a name is rejected, choose the orchestration and monitoring skills in the prompt)
   - `AGENTS.md` already carries the core Aspire commands and the rule that new runtime components are plugged into `host/AppHost.cs`; confirm
 10. Set up the CSharpRepl hook (optional; skip: delete `src/backend/runtime/DebugRepl.cs` and the CSharpRepl block of `host/AppHost.cs`)
-  - `host/ProcessUtils.cs` supplies the startup-hook environment to the backend in run mode only (`references/aspire-host.md`); `DebugRepl.cs` (bare `<PROJECT>` namespace) gives the REPL scope helpers for scoped services such as `DbContext`
+  - `host/ProcessUtils.cs` supplies the startup-hook environment to the backend in Aspire Run mode (`references/aspire-host.md`); keep the backend on Development settings. `DebugRepl.cs` (root `<PROJECT>` namespace) gives the REPL scope helpers; import it with `using <PROJECT>;` for short evals
   - Confirm: with the stack up, `csharprepl connect list` shows `<PROJECT>.Runtime`; usage: `hg-mdn-backend`, `references/csharprepl.md`
 11. Set up CSharpier
   - `.config/dotnet-tools.json` mirrors the CSharpier version in `mise.toml` (for CI agents and the VS Code extension)
