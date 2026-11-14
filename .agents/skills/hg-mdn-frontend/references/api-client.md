@@ -67,7 +67,7 @@ const body = await createNote({ body: { title: "Hello" } }).unwrap();   // NoteR
 const page = await listNotes().unwrap();                                // NoteListResponse
 ```
 
-- Every function returns a promise with `.unwrap()`, which resolves to the success **body**.  Use it in stores (the only callers).
+- Every function returns a promise with `.unwrap()`, which resolves to the success **body**.  Use it in `src/queries` (the only callers; the session store through `queries/session.ts`).
 - By default (`throwOnError` true) a non-2xx response **throws `ResponseError`**, so a resolved call always means success.  `ResponseError` has `status`, `statusText`, `data` (the parsed error body), `request`, `response`.
 - Request data goes in the options object: `{ body }`, `{ path: { id } }`, `{ query: { ... } }`, `{ headers }`, plus `{ signal }` for an `AbortController`.
 - Need to branch on status instead of catching?  Pass `{ throwOnError: false }`: the result carries `status`, `data`, and `error`, discriminated by status.
@@ -75,7 +75,7 @@ const page = await listNotes().unwrap();                                // NoteL
 
 ## Errors and `SaveResult`
 
-The backend returns **`ApiError`** (`{ code, message }`) for expected failures and problem details for unexpected ones.  One helper file turns both into something a store can show:
+The backend returns **`ApiError`** (`{ code, message }`) for expected failures and problem details for unexpected ones.  One helper file turns both into something a page can show:
 
 `src/app/src/api/errors.ts`
 
@@ -114,6 +114,11 @@ export function errorMessage(err: unknown, fallback: string): string {
   return toApiError(err)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+/** The message for a failed load, or `null` when nothing failed: what `AsyncContent`'s `error` takes. */
+export function errorText(err: unknown, fallback: string): string | null {
+  return err == null ? null : errorMessage(err, fallback);
+}
+
 /**
  * The outcome of a write action that the caller must react to (close a form, mark a field).
  * Actions return this instead of throwing: `ok` on success; otherwise the backend's stable error
@@ -133,8 +138,8 @@ export function toSaveFailure(err: unknown, fallback: string): SaveResult & { ok
 
 - Switch on `toApiError(err)?.code` (stable, `snake_case`: `invalid_title`, `title_too_long`) for behavior; show `message` to people.
 - Anything else (network failure, 500 problem details) falls back to a generic message: `errorMessage(err, "Could not save the note.")`.  The 500 body carries a `traceId` for the backend team.
-- **`SaveResult`** is what a store write returns: `{ ok: true }` or `{ ok: false, code, message }` (`code` is `null` when the failure was not an `ApiError`); `toSaveFailure(err, fallback)` builds the failure.  The caller shows `message` and maps `code` to a form field (`forms.md`).  Never match on message text.
-- **`isUnauthorized(err)`** is true for a 401.  Cross-cutting handling lives in `configureApiClient`, which dispatches a window event `api:unauthorized` for any 401; the router listens (`routing.md`).  Stores do not redirect.
+- **`SaveResult`** is what a mutation composable returns: `{ ok: true }` or `{ ok: false, code, message }` (`code` is `null` when the failure was not an `ApiError`); `toSaveFailure(err, fallback)` builds the failure.  The caller shows `message` and maps `code` to a form field (`forms.md`).  Never match on message text.
+- **`isUnauthorized(err)`** is true for a 401.  Cross-cutting handling lives in `configureApiClient`, which dispatches a window event `api:unauthorized` for any 401; the router listens (`routing.md`).  Queries and stores do not redirect.
 - `ApiError` is defined locally in `errors.ts` (the generated `ApiError` type exists only when an operation declares it); keep it structurally the same as the backend's.
 
 The shipped `errors.test.ts` runs the **real generated client** with only `fetch` stubbed, pinning the contract between `ResponseError`, `ApiError`, and the helper; copy its shape for error-mapping tests (`testing.md`).
@@ -184,7 +189,8 @@ export function configureApiClient() {
 
 - `client.setConfig({...})` takes `baseURL`, `headers`, `credentials`, `throwOnError`, `auth` (a bearer token or a function returning one, for operations that declare security).  Spread `client.getConfig()` so you extend rather than replace.  It **merges**: a key you set stays set until you name it again (tests restore `baseURL` explicitly for that reason).
 - `client.interceptors.request | response | error` each take `.use(fn)`; `fn` receives the value and returns it (modified or not).  `.use` returns an id for `.eject(id)`.
+- **Query errors are typed.**  `src/api/colada.d.ts` types every query and mutation `error` as `ResponseError`, so `error.value?.status` and `error.value?.data` need no cast (a network failure is a plain `Error` at runtime: `status` is then `undefined`).  `errorText(error.value, fallback)` (`errors.ts`) turns a query's `error` into the string `AsyncContent :error` takes, or `null` when nothing failed (`data-loading.md`, `ui-states.md`).
 
 ## When `fetch` is acceptable
 
-Use the generated client for every call.  Call `fetch` (or `EventSource`) directly only for an endpoint OpenAPI cannot describe, typically **server-sent events** or streaming responses.  Put it in one small module or store action, type the payload yourself, prefix the path with `client.getConfig().baseURL ?? ""` (undefined by default: same-origin) and reuse `credentials` so it follows the same configuration, and test it with a stubbed `fetch`.
+Use the generated client for every call.  Call `fetch` (or `EventSource`) directly only for an endpoint OpenAPI cannot describe, typically **server-sent events** or streaming responses.  Put it in one small module (in `src/queries` when a query or mutation calls it), type the payload yourself, prefix the path with `client.getConfig().baseURL ?? ""` (undefined by default: same-origin) and reuse `credentials` so it follows the same configuration, and test it with a stubbed `fetch`.

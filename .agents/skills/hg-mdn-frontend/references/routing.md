@@ -66,10 +66,12 @@ The router mirrors the backend's route groups (`hg-mdn-backend`, `references/rou
 
 ### Who is signed in
 
-`stores/session-store.ts` (shipped) holds `user`, `checked` (the first check finished), `isSignedIn`, `isAdmin`, `load({ force })`, and `signedOut()`.
+`stores/session-store.ts` (shipped) wraps `useQuery(sessionQuery)` (`queries/session.ts`) and holds `user`, `checked`, `isSignedIn`, `isAdmin`, `error`, `load({ force })`, and `signedOut()`.  It is the one store that owns a query (`state-pinia.md`).
 
-- The browser never reads a cookie or token; it asks the backend (`GET /me`).  **401 means nobody is signed in.**  Any other failure (a 500, the network) **keeps the previous state**: a blip must not sign someone out.
-- Concurrent callers share one request, and a stale response never overwrites a newer one (`data-loading.md`).
+- The browser never reads a cookie or token; it asks the backend (`GET /me`).  **401 means nobody is signed in:** `queries/session.ts` maps it to `null` data, so it is a normal answer and not an error.  Any other failure (a 500, the network) **keeps the previous state**: a blip must not sign someone out.
+- `checked` is `status !== "pending"`: the first check finished, whatever its outcome.
+- `load()` joins the check in flight, so concurrent callers share one request.  `load({ force: true })` starts a new check, and the newest answer wins (`data-loading.md`).
+- `signedOut()` cancels a check in flight, then writes `null` into the cache: the API answered 401 mid-session, or the user signed out.
 
 ### The guards
 
@@ -202,7 +204,7 @@ redirectToLoginOnUnauthorized(router);
 
 ### Testing guards
 
-Create a router with `createMemoryHistory()` and push to it (`router/guards.test.ts` ships): a memory router with routes that carry the real meta keys (`public`, `guestOnly`, `requiresAdmin`), `getMe` mocked at the module boundary, and `router.push` for each case.  Cover: signed out is redirected with `returnUrl`; signed in passes and titles the page; public stays open; the login page bounces a signed-in user; an unsafe `returnUrl` goes home; a parent's `requiresAdmin` covers a child; the user is asked **once**; a 401 event returns the user to login (and does nothing on a public route or during the first check).
+Create a router with `createMemoryHistory()` and push to it (`router/guards.test.ts` ships): a memory router with routes that carry the real meta keys (`public`, `guestOnly`, `requiresAdmin`), a real Pinia with the query cache (`installTestPinia()`, `testing.md`), `getMe` mocked at the module boundary, and `router.push` for each case.  Cover: signed out is redirected with `returnUrl`; signed in passes and titles the page; public stays open; the login page bounces a signed-in user; an unsafe `returnUrl` goes home; a parent's `requiresAdmin` covers a child; the user is asked **once**; a 401 event returns the user to login (and does nothing on a public route or during the first check).
 
 Test `safeReturnUrl` as a pure function (`return-url.test.ts`): every unsafe shape is a table row.  The whole-app smoke test pushes to the generated `routes` the same way (`testing.md`).
 
