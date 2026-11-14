@@ -54,7 +54,7 @@ Use when working on the front-end of the application.
 - **Components:** the page is the hub.  Pages and the app shell read queries and stores and pass state down as props; children report with typed events; `defineExpose` only for results that arrive after an emit.  Precompute row text in a `computed`; no calls or per-row lookups in a template (`references/components-composables.md`)
 - **TypeScript:** strict; no `any`, `enum`, or `forEach` (use `unknown`, string unions, `for...of`); always brace; no Nuxt-only APIs (`useFetch`, `useState`, `@nuxt/*`).  `oxlint` enforces most.  File placement, style, comments: `references/project-structure.md`
 - **Config:** only `VITE_*` variables reach the browser (public, baked in at build); never put a secret in one (`references/config-deploy.md`)
-- **Tests:** mock the generated client at the module boundary and use a real Pinia with `PiniaColada` (never `createTestingPinia`); cover loading, error, empty, success, and a stale or failing response.  For any UI work get the **Playwright MCP** before you start, then look at the result: light and dark, narrow and wide, keyboard, console and network (`references/testing.md`)
+- **Tests:** use MSW for client and Colada integration; use `vi.mock` for focused boundaries and use a real Pinia with `PiniaColada` (never `createTestingPinia`); cover loading, error, empty, success, and a stale or failing response.  For any UI work get the **Playwright MCP** before you start, then look at the result: light and dark, narrow and wide, keyboard, console and network (`references/testing.md`)
 - **Accessible by default:** every control has a name, real components rather than clickable `div`s, color never the only signal (`references/accessibility-responsive.md`)
 </rules>
 
@@ -75,6 +75,7 @@ Use when working on the front-end of the application.
 | loading and saving server data: queries and keys, mutations, invalidation, optimistic updates, shared requests, polling, debounce | `references/data-loading.md` |
 | calling the backend, handling API errors, `SaveResult`, Zod schemas, configuring the client | `references/api-client.md` |
 | writing a component or composable: data flow (page as hub, props down, events up), view models, `defineModel`, wrappers, common mistakes | `references/components-composables.md` |
+| generating contract mocks, browser stubs, deterministic data, and MSW scenarios | `references/mocking.md` |
 | writing tests, the API mock boundary, page tests, fake timers, or verifying UI in a browser | `references/testing.md` |
 | keyboard, screen readers, phones | `references/accessibility-responsive.md` |
 | environment variables, building, the one-origin container (dev proxy, Docker stage), hosting the front-end apart, cache and security headers, the build version shown in the UI | `references/config-deploy.md` |
@@ -97,8 +98,8 @@ All scripts: `references/project-structure.md` ("Commands").  From the repo root
 ## Working Loop
 
 1. Read the relevant reference(s) (`recipes.md` for a feature); open the nearest existing page, query, or component and copy its shape (one that ships, or the listing in the reference).  For a new complex screen, look at the matching Nuxt UI template view first.
-2. If the backend contract is involved, refresh and commit the OpenAPI document (`mise run openapi`), regenerate (`npm run generate`), and let `vue-tsc` list what to update; read the new JSDoc.
-3. Write or change the query options and mutation composables (`src/queries`: key with every input, `signal`, `SaveResult` writes, invalidation), then the page and components that use them.
+2. If the backend contract is involved, review and commit the OpenAPI document before handlers exist (`mise run openapi`), regenerate (`npm run generate`), and let `vue-tsc` list what to update; read the new JSDoc.
+3. Build against the generated stub mocks (`references/mocking.md`).  Write or change the query options and mutation composables (`src/queries`: key with every input, `signal`, `SaveResult` writes, invalidation), then the page and components that use them.
 4. Add or update tests beside the code (query or mutation, component or composable, page); run `npm test`.
 5. Look at it in the browser with the Playwright MCP (`aspire describe` gives the front-end URL): all four states, light and dark, narrow and wide, keyboard.
 6. Hand off with the checklist in `references/recipes.md` (`mise run check`).
