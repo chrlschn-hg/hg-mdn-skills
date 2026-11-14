@@ -70,13 +70,14 @@ Make the draft implementable with no ambiguity:
 
 - **Specific**: name the files and the lines or members to change; show annotated snippets of the key changes
 - **Phased, bottom-up**, each phase writing its tests with its code (handler test first): models, entities, and migrations; services and stores; handlers; endpoints and the OpenAPI contract; regenerate the client; front-end queries and mutations; pages and components; UI verification
+- **Contract first**, when the front-end and the backend work in parallel: phase 1 is a contract PR (records, endpoints with final descriptions and security, stub handlers, the committed OpenAPI document); then the front-end builds on generated mocks while the backend replaces each stub, test first; each switch is its own slice, and the build stays green (`hg-mdn-backend`, `references/openapi-contract.md`, "Contract first: stub operations"; `hg-mdn-frontend`, `references/mocking.md`)
 - **A test plan**: the scenarios to cover, by level (handler, store, store integration, front-end query, component, page); say where a human must coordinate (a signed-in session, a device)
 - **The flow**: the logical path of data and calls through the feature
 - **Telemetry**: logs, spans, and metrics to add (`hg-mdn-backend`, `references/telemetry-logging.md`)
 - **Open Decisions**: every unresolved choice in one section, each with options and a recommendation
 - **Consistent**: check that names, types, and flows agree across sections; call out any inconsistency
 - Written for a technical audience that has not seen the discussion
-- **Team**: if the work can be parallelized and divided, what should the team composition look like and how will work be coordinated?
+- **Team**: if the work can be parallelized and divided, what should the team composition look like and how will work be coordinated?  Contract first: name the contract owner (one agent writes the contract PR; the front-end reviews it before building on it) and who removes each stub
 
 ### 4. Work log (`.log.md`)
 
@@ -133,6 +134,7 @@ Every plan ends with how the work will be checked:
 - `mise run check` passes: builds with no new warnings, front-end type check, lint, format check, all tests (the same list as AGENTS.md "Working agreements")
 - New tests for the new behavior; refactored tests where behavior moved (`hg-mdn-backend`, `references/testing.md`)
 - A code review pass on the changed code, excluding generated files
+- Contract first: no stub operation (`x-implementation` in the committed OpenAPI document) is left before a release
 - UI click-through with the Playwright MCP: exercise the feature, the empty, loading, and error states, light and dark, narrow and wide (`hg-mdn-frontend`, `references/testing.md`); ask the user for a signed-in session if the app needs one
 - Documentation updated where the project keeps it
 

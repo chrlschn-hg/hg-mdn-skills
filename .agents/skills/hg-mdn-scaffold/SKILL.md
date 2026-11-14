@@ -11,7 +11,7 @@ Scaffolds a repository for modern .NET development: Aspire host, feature-slice b
 
 - Mise (<https://mise.jdx.dev/llms.txt>): runtime dependencies (SDKs, CLIs, tools) and tasks (`mise run <task>`)
 - Aspire (<https://aspire.dev/llms.txt>): local orchestration of containers and system dependencies (Postgres, SQL Server, Redis, emulators, runtime commands, package installs)
-- Kubb.dev (<https://kubb.dev/llms.txt>): TypeScript client and Zod schemas from the OpenAPI document the backend build writes
+- Kubb.dev (<https://kubb.dev/llms.txt>): TypeScript client and Zod schemas from the OpenAPI document the backend build writes, plus MSW handlers and Faker data from the same document: the front-end builds and tests on mocks before the backend handlers exist (`hg-mdn-frontend`, `references/mocking.md`)
 - Scalar (<https://scalar.com/products/api-references/integrations/aspnetcore/integration>): API reference UI at `/scalar`, Development only, set up beside the OpenAPI document in `OpenApiSetup` (`hg-mdn-backend`, `references/openapi-contract.md`)
 - Testcontainers (<https://dotnet.testcontainers.org/>): integration test infrastructure
 - One container image: the runtime serves the built front-end at `/` and the API under `/api`; the build stamps the version and commit the app reports
@@ -83,7 +83,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - .NET tools: always <mise_config_default_dotnet_tools />
   - Stacked PRs: `github:cesarferreira/stax` (pinned; installs `st` and `stax`).  Then, per machine: `st setup --yes` and `st doctor` (setup, usage, and CI watching: `references/stax.md`)
   - Cloud CLIs (`aws-cli`, `gcloud`, `azure-cli`) with their config under `.config` (see the template); other tools asked for
-  - Tasks `up`, `down`, `build`, `openapi`, `generate`, `test`, `image`, `format`, `lint`, `check` from the template; `mise tasks` lists them.  `mise run check` is the definition of done
+  - Tasks `up`, `down`, `dev-mocks` (Vite with the stub mocks on), `build`, `openapi`, `generate`, `test`, `image`, `format`, `lint`, `check` from the template; `mise tasks` lists them.  `mise run check` is the definition of done
   - Verify: `mise install`, `dotnet --version`, `mise tasks`.  macOS: if `dotnet --version` dies with SIGTERM after the first install, apply the ad hoc codesign fix (`references/root-files.md`, "Mise and .NET")
 3. Set up skills, `AGENTS.md`, `README.md`, and editor config (templates: `references/root-files.md`)
   - VS Code (`.vscode/extensions.json`, `settings.json`, `tasks.json`): format on save with CSharpier (C#, XML) and `oxfmt` through the Oxc extension (TypeScript, Vue, CSS, JSON); `source.fixAll.oxc` for lint fixes; Markdown tools (markdownlint, Markdown All in One) but **no format on save for Markdown** (formatters pad tables and churn diffs; `.oxfmtrc.json` ignores `**/*.md` so the CLI agrees)
@@ -105,7 +105,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Central package management in `src/backend/Directory.Packages.props` (the package set; drop what the chosen database does not need; bare `PackageReference` in every csproj); shared properties in `src/backend/Directory.Build.props`; `src/backend/Directory.Build.targets` adds the `Should()` assertion package to every project that references `TUnit`
   - Layout under `src/backend`, every project in `<project>.slnx` (folders mirror directories):
     - `runtime/<PROJECT>.Runtime.csproj`: the web host; keep it lean, business logic goes in feature packages; one `ProjectReference` per slice; writes OpenAPI (path relative to the csproj directory) and serves Scalar in Development; `Program.cs` only calls the setup classes (`Setup/`: settings, OpenAPI + Scalar, startup)
-    - `packages/<PROJECT>.Config` (`AppSettings.cs`: the strongly typed `public record class` settings), `.Api` (endpoint contracts, discovery, `Security/`, `SpaSetup`), `.Telemetry`
+    - `packages/<PROJECT>.Config` (`AppSettings.cs`: the strongly typed `public record class` settings), `.Api` (endpoint contracts, discovery, `Security/`, `SpaSetup`, `Stub`), `.Telemetry`
     - `packages/<PROJECT>.Health` and `.Health.Tests`: the first slice, the worked example for every later `<PROJECT>.<FEATURE_SLICE>`; `.Identity` and `.Identity.Tests`: `GET /me`
     - `packages/<PROJECT>.Api.Tests` (lints the OpenAPI document; tests route groups, guards, and front-end hosting in memory) and `.Runtime.Tests` (lints every real route: secured or listed as anonymous; references the runtime)
     - Database only: `.Data`, `.Data.Tests`, `.Testing` (fixtures, `TruncateToPostgresPrecision`), `.Testing.Tests`
@@ -114,6 +114,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - Build info: `Health` reports the running version, commit, and build time (`BuildInfo`), also logged at startup and sent as `service.version` (`hg-mdn-backend`, `references/build-info.md`)
   - Sign-in is the step 0 answer.  Until a scheme is chosen keep the placeholder `Add<PROJECT>Authentication` (Development signs in a configured user; elsewhere secured routes answer 401); replacing it changes nothing else
   - Every endpoint gets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` lints the OpenAPI document, so a missing one fails `mise run test` and CI, not `dotnet build` (`hg-mdn-backend`, `references/openapi-contract.md`)
+  - Contract first: an operation can ship as a stub before its handler exists.  `Stub` (the last arm of the handler's `Results<...>`) answers 501 and marks the operation `x-implementation: stub` in the OpenAPI document; `StubLintTests` holds the reviewed list (empty at scaffold); the release path refuses a document with a stub (`hg-mdn-backend`, `references/openapi-contract.md`, "Contract first: stub operations")
   - Composition root (`hg-mdn-backend`, `references/composition-root.md`): `Program.cs` is a table of contents, one `Add<PROJECT>X` / `Use<PROJECT>X` / `Map<PROJECT>X` call per concern.  The build runs the whole host to write OpenAPI, so registrations stay free of infrastructure and `StartupSetup` skips its work in that mode (`OpenApiSetup.IsGeneratingDocument`)
   - No migration ships: the first entity needs `dotnet ef migrations add` (`hg-mdn-backend`, `references/data-efcore.md`), and the Zeeq Biome test setup arrives with it: `Zeeq.Biome*` references in `<PROJECT>.Testing` (already versioned in `Directory.Packages.props`), the seed, `TestBiome`, and blueprints in `<PROJECT>.Testing/Biome/`, then its agent skills (`hg-mdn-backend`, `references/zeeq-biome.md`)
   - Zero tolerance: `TreatWarningsAsErrors` in `Directory.Build.props` (and `host.csproj`); fix warnings, suppress one id at a time with a reason, only when the rule is wrong for that case.  Raising `AnalysisLevel`, banned APIs, and custom analyzers are per-project choices (`hg-mdn-backend`, `references/static-analysis.md`)
@@ -124,14 +125,15 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
   - **Toolchain for speed and consistent formatting, from the first commit:** TypeScript 6.x (`~6.0`; `vue-tsc` does not support 7), `oxlint` for linting and `oxfmt` for formatting (the Rust-based Oxc tools, <https://oxc.rs/llms.txt>), with `.oxlintrc.json`, `.oxfmtrc.json`, the `lint`/`lint:fix`/`fmt`/`fmt:check` scripts, and VS Code formatting on save through `oxc.oxc-vscode`.  Do not add ESLint or Prettier: one linter and one formatter, fast enough to run on every save and in every check (a lint or format check of the template takes about a tenth of a second)
   - Run `npm run fmt` once after creating the files, so the first commit is already formatted, then verify `npm run lint && npm run fmt:check`
   - Icons are bundled, never fetched at runtime: the template's `vite.config.ts` maps the lucide slots to hugeicons (`hg-mdn-frontend`, `references/nuxt-ui.md`)
-  - Vitest with `happy-dom` and `@vue/test-utils`; infrastructure in `src/test/` (`setup.ts` fails any unmocked `fetch`, `mount.ts`, `AppHarness.vue`); `App.test.ts` smoke-tests the whole app, including "no icon fetched"
+  - Vitest with `happy-dom` and `@vue/test-utils`; infrastructure in `src/test/` (`setup.ts` runs the MSW server and fails a test that sends an unhandled request, `server.ts`, `mount.ts`, `AppHarness.vue`); `App.test.ts` smoke-tests the whole app, including "no icon fetched"
   - Secure by default in the router too (`router/guards.ts`, `stores/session-store.ts`, `pages/login.vue`; rules: `hg-mdn-frontend`, `references/routing.md`); the login page is a placeholder for the chosen sign-in flow
   - `zod`, `AsyncContent.vue`, `src/api/errors.ts` (`SaveResult`), `src/api/setup.ts` (`configureApiClient`), `src/env.d.ts` (`VITE_API_BASE_URL`, only for a front-end hosted apart), `components/BuildInfoLabel.vue` (shows the running version)
+  - Mocks from the contract (`hg-mdn-frontend`, `references/mocking.md`): `@kubb/plugin-msw` and `@kubb/plugin-faker` write handlers and fakes beside the client; `src/mocks/` selects what the browser mocks (operations marked `x-implementation: stub`) and `VITE_MOCK_API` turns the browser mocks on in development; the worker file and the mock code never reach `dist`.  After `npm install` run `npx msw init public/ --save` (it writes `public/mockServiceWorker.js`, a vendor file you commit and never edit, and rewrites `package.json`), then `npx oxfmt package.json`.  Pin the two Kubb plugins and `msw` exactly: a Kubb plugin's peer range allows pairs that fail
   - Kubb (`kubb.config.ts`): TypeScript types, fetch client, Zod (`@kubb/plugin-zod`); no `baseURL` (the OpenAPI paths start with `/api`, so calls are relative); `vite.config.ts` proxies `/api` to the backend in development.  Scripts: `generate`, `generate:watch` (Aspire runs it standalone), and `pretest` and `build` run `kubb generate` first
   - The official Nuxt UI agent skill, after step 3's symlinks exist: `npx skills add nuxt/ui --skill nuxt-ui -a codex -y` (installs into `.agents/skills/nuxt-ui`, records `skills-lock.json`; tell the user to review it)
 8. Generate the client and verify the front-end (needs steps 6 and 7)
   - In `src/app`: install with the chosen package manager; step 6's build already wrote the OpenAPI document; `npm run generate`
-  - Verify: `npm run lint && npm run fmt:check && npm test && npm run build`
+  - Verify: `npm run lint && npm run fmt:check && npm test && npm run build`; `rg -il 'msw|faker' dist` prints nothing
   - `AGENTS.md` ("API generation") already states the flow C# endpoints -> OpenAPI document -> Kubb; confirm it matches
 9. Set up Aspire with C# (templates: `references/aspire-host.md`)
   - `host/` holds the AppHost; add it to the `.slnx`.  Like `src/backend`, it starts with `TreatWarningsAsErrors` and its own `host/Directory.Packages.props` (the Aspire SDK in `host.csproj` and every `Aspire.Hosting.*` version move together)
@@ -155,7 +157,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
 13. Set up GitHub Actions (optional; template: `references/containers-ci.md`)
   - `ci.yml`: backend format check, build, tests (Testcontainers needs Docker); front-end lint, format check, test, build; an image job that builds the Dockerfile and runs `build/smoke.sh` against it
   - `docker-publish.yml`: `latest` and `sha-<commit>` to GHCR on every push to `main` (reports `0.0.0-dev` and the commit)
-  - Releases (optional, skippable; all of it in `references/release.md`): the next version is computed from Conventional Commits (`build/next-version.sh`, 0.x until 1.0.0 is declared) and `release.yml` validates, waits for approval, pushes the versioned image, and creates the GitHub Release and tag
+  - Releases (optional, skippable; all of it in `references/release.md`): the next version is computed from Conventional Commits (`build/next-version.sh`, 0.x until 1.0.0 is declared) and `release.yml` fails while the committed OpenAPI document has a stub operation, validates, waits for approval, pushes the versioned image, and creates the GitHub Release and tag
     - At scaffolding: the files, the edits to other files (mise tasks, `ci.yml`, `AGENTS.md`, `README.md`), and `mise run release-test`
     - Once the repository is on GitHub: the `production` environment, squash-merge on the PR title, a branch ruleset, package access, then a `dry_run` before the first real release
   - Deployment target (step 0): add deploy steps with OIDC federation, not long-lived secrets
@@ -178,6 +180,7 @@ Order: 1, then 2, then 3 and 4; then 5, the chain 6 → 9 → 10, and 7 in paral
 
 - **Production answers 401.** The Docker image runs Production, where the placeholder authentication authenticates nobody: every secured route answers 401 (only `/api/health` works) until a project registers its real scheme.
 - **The front-end is in the image.** `docker build` runs `npm run build` (it regenerates the API client from the committed OpenAPI document, so commit `src/app/src/api/<project>-api.json` after backend changes).  A local `wwwroot` (to try the hosted front-end without Docker) is git-ignored and not sent to the Docker build.
+- **A stub answers 501.** An operation marked `x-implementation: stub` has no handler yet; the front-end mocks it, and the release path refuses to ship it (`hg-mdn-backend`, `references/openapi-contract.md`).
 - **`Zero tests ran`** from `dotnet test`: the Microsoft Testing Platform pipe path is too long; see `hg-mdn-backend`, `references/testing.md`.
 
 </gotchas>
