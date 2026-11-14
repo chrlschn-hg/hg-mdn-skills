@@ -25,12 +25,12 @@ Four screens cover most application work.  Each is a `UDashboardPanel` with a `#
 ### Dashboard view
 
 - **The pattern to take:** the filters (`range`, `period`: a `UCalendar` range in a `UPopover`, a `USelect`) are **state of the page**, and each widget (`UPageGrid` of `UPageCard`s, a `UCard` chart, a compact `UTable`) receives them as props.  A widget is one self-contained component that renders its own card; the page only composes and passes filters.
-- **Adapt:** the template's widgets draw mock data.  Here the page (or a store) loads data for the filter, and each widget wraps its content in `AsyncContent` so one slow or failing widget does not blank the page (`ui-states.md`).  Watch or debounce filter changes and ignore stale responses (`data-loading.md`).
+- **Adapt:** the template's widgets draw mock data.  Here the page loads each widget's data with `useQuery` (the filter is in the query key), and each widget wraps its content in `AsyncContent` so one slow or failing widget does not blank the page (`ui-states.md`).  Debounce typed filters; the key makes a stale response harmless (`data-loading.md`).
 
 ### Listing view
 
 - **The pattern to take:** `UTable` state is bound with `v-model:column-filters`, `v-model:column-visibility`, `v-model:row-selection`, and `v-model:pagination`; the table's TanStack API (`useTemplateRef("table")` -> `tableApi`) drives filters and counts.  A "Delete" button appears only when rows are selected; bulk actions act on the selected rows.
-- **Adapt:** load rows through a store and wrap the table in `AsyncContent`.  For search plus paging only, `useClientList` is simpler (`lists-tables.md`); reach for the template's approach when you need **row selection, bulk actions, or column visibility**.  Prefer the `#<key>-cell` slot over `h()` / `resolveComponent` for custom cells.  Confirm deletes with `useConfirm` or a modal, and update the store, not the table.
+- **Adapt:** load rows with `useQuery` and wrap the table in `AsyncContent`.  For search plus paging only, `useClientList` is simpler (`lists-tables.md`); reach for the template's approach when you need **row selection, bulk actions, or column visibility**.  Prefer the `#<key>-cell` slot over `h()` / `resolveComponent` for custom cells.  Confirm deletes with `useConfirm` or a modal, and change the data through a mutation (the list refetches), not the table.
 
 ### Inbox view (master-detail)
 
@@ -39,12 +39,12 @@ Four screens cover most application work.  Each is a `UDashboardPanel` with a `#
   - **Derived open state:** the mobile slideover's `open` is a `computed` with a setter that clears the selection, so closing the panel and deselecting are one thing.
   - **Reset on filter:** a `watch` clears the selection when the selected item is no longer in the filtered list.
   - **Responsive switch:** below `lg` (`useBreakpoints(breakpointsTailwind).smaller("lg")`, the idea of `useIsMobile`), the detail renders inside a `USlideover` instead of beside the list.
-- **Adapt:** the list comes from a store; select by **id** (a route param such as `/inbox/:id` makes the selection linkable and survives reload) rather than keeping the whole object, so a refreshed list updates the detail.  Show the four states in the list panel (`ui-states.md`).
+- **Adapt:** the list comes from a query; select by **id** (a route param such as `/inbox/:id` makes the selection linkable and survives reload) rather than keeping the whole object, so a refreshed list updates the detail.  Show the four states in the list panel (`ui-states.md`).
 
 ### Settings view
 
 - **The pattern to take:** `pages/settings.vue` is a **parent route** (next to a `pages/settings/` folder, `routing.md`) with a horizontal `UNavigationMenu` sub-navigation and a centered column that renders `<RouterView />`.  Each section is a `UForm` (`:schema`, `:state`, `@submit`) with a header `UPageCard variant="naked"` (title, description, and the **Save** button wired with the `form="<id>"` attribute) over a `UPageCard variant="subtle"` of `UFormField` rows.  A success toast confirms the save.
-- **Adapt:** validate with the **generated** Zod schema, return a `SaveResult` from the store and show backend errors on the field (`forms.md`), guard leaving with unsaved changes (`overlays.md`, "Unsaved changes"), and load the current values with `AsyncContent`.  Settings that save one value at a time (a switch) can save on change with a toast.
+- **Adapt:** validate with the **generated** Zod schema, return a `SaveResult` from a mutation composable and show backend errors on the field (`forms.md`), guard leaving with unsaved changes (`overlays.md`, "Unsaved changes"), and load the current values with `AsyncContent`.  Settings that save one value at a time (a switch) can save on change with a toast.
 
 ## How to explore a template
 
@@ -56,7 +56,7 @@ Four screens cover most application work.  Each is a `UDashboardPanel` with a `#
 | Take from the template | Replace with the project's way |
 |---|---|
 | component choice, props, slots, composition | keep |
-| `useFetch`, `useState`, `$fetch`, Nitro server routes, mock data, Nuxt modules | a Pinia store calling the generated client (`state-pinia.md`, `api-client.md`) |
+| `useFetch`, `useState`, `$fetch`, Nitro server routes, mock data, Nuxt modules | `useQuery` and `useMutation` in `src/queries` calling the generated client; client state in a Pinia store (`data-loading.md`, `state-pinia.md`, `api-client.md`) |
 | `i-lucide-*` icons (the templates use lucide throughout) | literal `i-hugeicons-*` names, or they are fetched at runtime (`nuxt-ui.md`, "Icons: bundle them") |
 | ad-hoc loading and empty markup | `AsyncContent` (`ui-states.md`) |
 | hand-written form validation | the generated Zod schema (`forms.md`) |

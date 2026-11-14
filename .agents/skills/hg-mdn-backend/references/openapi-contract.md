@@ -19,7 +19,7 @@ Scalar (`/scalar`, Development only) renders the same document for humans; `/ope
 1. Edit the endpoint, handler, or contract record (and its XML docs); write or update `WithSummary` and `WithDescription`.
 2. `dotnet build` (or `mise run openapi`): rewrites `src/app/src/api/<project>-api.json`.  Under Aspire a watching build does this on save.
 3. `mise run generate` (`npm run generate` in `src/app`; or let `kubb-generate-watch` do it): regenerates `generated/`.
-4. Use the new client function or type in a store (`hg-mdn-frontend`, `references/api-client.md`).  Commit the OpenAPI document with the C# change.
+4. Use the new client function or type in a query or mutation in `src/queries` (`hg-mdn-frontend`, `references/data-loading.md`, `references/api-client.md`).  Commit the OpenAPI document with the C# change.
 
 Review the diff of `<project>-api.json`: an unintended contract change shows up there.
 

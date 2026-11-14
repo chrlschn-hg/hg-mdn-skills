@@ -233,7 +233,7 @@ Fill the title line and the context sentences from the user's answers; the rest 
 ## Skills
 
 - `hg-mdn-backend`: building the .NET backend (feature slices, endpoints, data, telemetry, testing)
-- `hg-mdn-frontend`: building the Vue front-end (Nuxt UI, Pinia, API client)
+- `hg-mdn-frontend`: building the Vue front-end (Nuxt UI, Pinia Colada, API client)
 - `hg-mdn-planning`: planning a feature or edit (requirements, draft, spec, and work log in `.agents/plans`)
 - `stax`: stacked branches and PRs with `st` (vendored from `st --skill`; refresh with `mise run stax-skill`)
 - `hg-mdn-scaffold`: setting up foundational scaffolding that is missing

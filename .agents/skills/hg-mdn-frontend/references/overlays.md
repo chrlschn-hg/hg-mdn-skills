@@ -12,7 +12,7 @@ Prefer a **slideover** for forms and detail (the page stays visible and the form
 
 ## A slideover component
 
-The slideover is presentational: data in as props, decisions out as events.  The page owns the store.
+The slideover is presentational: data in as props, decisions out as events.  The page owns the query and mutations.
 
 `src/app/src/components/NoteFormSlideover.vue`
 
@@ -20,11 +20,11 @@ The slideover is presentational: data in as props, decisions out as events.  The
 <script setup lang="ts">
 import NoteForm from "@/components/NoteForm.vue";
 import { useConfirm } from "@/composables/useConfirm";
-import type { NoteDraft } from "@/stores/notes-store";
+import type { NoteDraft } from "@/queries/notes";
 
 /**
  * Slideover around `NoteForm`.  Presentational: it takes data as props and reports decisions as
- * events; the page owns the store.  Closing with unsaved text asks first.
+ * events; the page owns the query and mutations.  Closing with unsaved text asks first.
  */
 defineProps<{
   saving?: boolean;
@@ -167,9 +167,10 @@ export function useConfirm() {
 
 ```ts
 const confirm = useConfirm();
+const { remove } = useDeleteNote(); // in `setup`: a mutation needs the component's injections
 
 if (await confirm({ title: "Delete this note?", confirmLabel: "Delete", confirmColor: "error" })) {
-  await store.remove(id);
+  await remove(id); // a `SaveResult`: toast a failure (`data-loading.md`)
 }
 ```
 

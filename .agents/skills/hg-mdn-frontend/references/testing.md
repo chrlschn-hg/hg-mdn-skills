@@ -16,13 +16,13 @@ test: {
 },
 ```
 
-- Tests run through the same Vite config, so auto-imports (`ref`, `defineStore`, `storeToRefs`, ...), the `@/` alias, and typed routes work in them.
-- `npm test` runs `vitest run` (after regenerating the API client: `pretest`).  Watch mode: `npx vitest`.  One file: `npx vitest run src/stores/notes-store.test.ts`; by name: `-t "puts a created note first"`.
+- Tests run through the same Vite config, so auto-imports (`ref`, `defineStore`, `storeToRefs`, ...), the `@/` alias, and typed routes work in them.  `@pinia/colada` is not auto-imported: import `useQuery` explicitly.
+- `npm test` runs `vitest run` (after regenerating the API client: `pretest`).  Watch mode: `npx vitest`.  One file: `npx vitest run src/queries/notes.test.ts`; by name: `-t "refetches the list"`.
 - Tests sit beside the code: `thing.ts` and `thing.test.ts`.
 
 ## Test infrastructure (`src/test/`)
 
-Three small files every test benefits from (they ship in the baseline):
+Four small files every test benefits from (they ship in the baseline):
 
 `src/app/src/test/setup.ts`
 
@@ -50,14 +50,15 @@ afterEach(() => vi.unstubAllGlobals());
 
 ```ts
 import ui from "@nuxt/ui/vue-plugin";
+import { PiniaColada } from "@pinia/colada";
 import { mount, type ComponentMountingOptions } from "@vue/test-utils";
 import { createPinia } from "pinia";
-import type { Component } from "vue";
+import { defineComponent, type Component } from "vue";
 
 /**
- * `mount` with what every component here needs: the Nuxt UI plugin (theme and injections) and a
- * fresh Pinia.  Pass `attachTo: document.body` when the component teleports (slideovers, modals,
- * popovers) and the test queries `document.body`.
+ * `mount` with what every component here needs: the Nuxt UI plugin (theme and injections), a
+ * fresh Pinia, and its query cache (`PiniaColada`).  Pass `attachTo: document.body` when the
+ * component teleports (slideovers, modals, popovers) and the test queries `document.body`.
  */
 export function mountWithUi<T extends Component>(
   component: T,
@@ -65,8 +66,52 @@ export function mountWithUi<T extends Component>(
 ) {
   return mount(component, {
     ...options,
-    global: { ...options.global, plugins: [ui, createPinia(), ...(options.global?.plugins ?? [])] },
+    global: {
+      ...options.global,
+      plugins: [ui, createPinia(), PiniaColada, ...(options.global?.plugins ?? [])],
+    },
   } as ComponentMountingOptions<T>);
+}
+
+/**
+ * Runs a composable (or anything that needs a component's injections, like `useQuery` and
+ * `useMutation`) inside a mounted component, and returns what it returned.  Unmount the wrapper
+ * when done.
+ */
+export function runInSetup<T>(fn: () => T) {
+  let result!: T;
+  const wrapper = mountWithUi(
+    defineComponent({
+      setup() {
+        result = fn();
+        return () => null;
+      },
+    }),
+  );
+
+  return { result, wrapper };
+}
+```
+
+`src/app/src/test/pinia.ts`
+
+```ts
+import { PiniaColada } from "@pinia/colada";
+import { createPinia, setActivePinia } from "pinia";
+import { createApp } from "vue";
+
+/**
+ * A fresh Pinia **and query cache** for a test that uses stores or queries outside a component.
+ * The cache is a Pinia store, so a new Pinia means no data left over from the previous test.
+ * It is installed in an app so `useQuery` finds its injections.  Never use `createTestingPinia`:
+ * it stubs the actions the query cache relies on.
+ */
+export function installTestPinia() {
+  const pinia = createPinia();
+  createApp({}).use(pinia).use(PiniaColada);
+  setActivePinia(pinia);
+
+  return pinia;
 }
 ```
 
@@ -86,7 +131,9 @@ export function mountWithUi<T extends Component>(
 ```
 
 - **`setup.ts` is a network guard.**  Any `fetch` a test did not stub throws `Unexpected network request in a test: <url>. Mock the API function.` instead of failing with a confusing `ECONNREFUSED`.  Tests that exercise the real client stub `fetch` themselves with `vi.stubGlobal`, which wins.
-- **`mountWithUi`** is `mount` plus the Nuxt UI plugin and a fresh Pinia: what every component needs.
+- **`mountWithUi`** is `mount` plus the Nuxt UI plugin, a fresh Pinia, and its query cache (`PiniaColada`): what every component needs.
+- **`runInSetup`** runs a query, a mutation, or a composable that uses them inside a mounted component: `useQuery` and `useMutation` need a component's injections.  Each call gets a fresh Pinia and cache; unmount the wrapper after the test.
+- **`installTestPinia`** gives a test that uses a store outside a component a fresh Pinia and cache, attached to an app.  **Never `createTestingPinia`**: it stubs the actions the query cache relies on.
 - **`AppHarness`** is a `UApp` host for anything that teleports or needs `UApp`: overlays opened through `useOverlay` (confirmations), toasts, `USlideover`/`UModal`/`UPopover`.  Mount the component in its default slot, with `attachTo: document.body`; the content is then in `document.body`, not in `wrapper`.
 - Principle: **mock only the API (at the generated-client module); everything else is real.**
 
@@ -94,35 +141,38 @@ export function mountWithUi<T extends Component>(
 
 | Subject | How | Example |
 |---|---|---|
-| **Stores** | mock the generated clients; assert state, flags, and errors | `stores/notes-store.test.ts` |
-| **Composables** | call them directly with plain refs; fake timers for time | `composables/useAutoRefresh.test.ts` |
+| **Queries and mutations** | mock the generated clients; run in `runInSetup`; assert `data`, `error`, flags, and the `SaveResult` | `queries/notes.test.ts` |
+| **Stores** | `installTestPinia()` in `beforeEach`; arrange mocks before the first use of a store that wraps a query | `stores/session-store.test.ts` |
+| **Composables** | call them directly with plain refs, or in `runInSetup` when they use a query; fake timers for time | `composables/useAutoRefresh.test.ts` |
 | **Utils** | plain input and output | any `utils/*.test.ts` |
 | **Components with logic** | `mountWithUi`; props, events, slots | `components/SearchBox.test.ts`, `NoteForm.test.ts` (`forms.md`) |
 | **Overlays** | `AppHarness` + `attachTo: document.body` (`overlays.md`, "Testing overlays") | `components/NoteFormSlideover.test.ts` |
 | **API error mapping, client config** | real generated client, stub `fetch` | `api/errors.test.ts` |
 | **Router guards** | memory router and `router.push` (`routing.md`) | `router/guards.test.ts` |
-| **Pages and whole-app wiring** | mount `App` with router, Nuxt UI, Pinia; API mocked | `App.test.ts`, `pages/notes/index.test.ts` |
+| **Pages and whole-app wiring** | mount `App` with router, Nuxt UI, Pinia, `PiniaColada`; API mocked | `App.test.ts`, `pages/notes/index.test.ts` |
 
 Test behavior a user or a caller can see.  Do not test Nuxt UI itself, and do not assert on markup details that a restyle would change.  Query by **text, role, or `aria-label`**, which doubles as an accessibility check.
 
-Every page covers: the list, the **empty** state, the **error** state, the main action's success, and its failure.  Every store covers loading, error, success, and a stale or failing response.
+Every page covers: the list, the **empty** state, the **error** state, the main action's success, and its failure.  Every query covers loading, error, success, and a stale or failing response; every mutation covers success and the backend's `code`.
 
 ## Mock at the generated-client boundary
 
-Stores call generated functions, so that is the one seam to mock.  Use `vi.hoisted` so the mock exists before the module under test is imported:
+Only `src/queries` calls the generated functions, so that is the one seam to mock.  Use `vi.hoisted` so the mock exists before the module under test is imported:
 
-`src/app/src/stores/notes-store.test.ts`
+`src/app/src/queries/notes.test.ts`
 
 ```ts
-import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useQuery, useQueryCache } from "@pinia/colada";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResponseError } from "@/api/generated/.kubb/client";
-import { useNotesStore } from "./notes-store";
+import { runInSetup } from "@/test/mount";
+import { notesKey, notesQuery, useCreateNote, useDeleteNote } from "./notes";
 
-// Mock the generated clients at the module boundary; stores never see HTTP.
-const api = vi.hoisted(() => ({ listNotes: vi.fn(), createNote: vi.fn() }));
+// Mock the generated clients at the module boundary; queries and mutations never see HTTP.
+const api = vi.hoisted(() => ({ listNotes: vi.fn(), createNote: vi.fn(), deleteNote: vi.fn() }));
 vi.mock("@/api/generated/clients/listNotes", () => ({ listNotes: api.listNotes }));
 vi.mock("@/api/generated/clients/createNote", () => ({ createNote: api.createNote }));
+vi.mock("@/api/generated/clients/deleteNote", () => ({ deleteNote: api.deleteNote }));
 
 const note = (id: string, title = id) => ({
   id,
@@ -138,70 +188,103 @@ const rejection = (status: number, data: unknown) =>
     data,
     status,
     statusText: "",
-    request: new Request("http://localhost/notes"),
-    response: new Response(),
+    request: new Request("http://localhost/api/notes"),
+    response: new Response(null, { status }),
   });
 
-describe("useNotesStore", () => {
-  beforeEach(() => setActivePinia(createPinia()));
+// `runInSetup` mounts a host component with a fresh Pinia and query cache: no data leaks between
+// tests.  Unmount it so no query outlives its test.
+let unmount: () => void = () => {};
+afterEach(() => unmount());
 
+describe("notesQuery", () => {
   it("loads notes", async () => {
+    // A query fires when it is created: arrange the response first.
     api.listNotes.mockReturnValue(ok({ items: [note("1")] }));
 
-    const store = useNotesStore();
-    await store.load();
+    const { result: query, wrapper } = runInSetup(() => useQuery(notesQuery));
+    unmount = () => wrapper.unmount();
 
-    expect(store.notes).toEqual([note("1")]);
-    expect(store.error).toBeNull();
-    expect(store.loading).toBe(false);
+    await vi.waitFor(() => expect(query.data.value).toEqual({ items: [note("1")] }));
+    expect(query.error.value).toBeNull();
+    expect(query.isPending.value).toBe(false);
   });
 
   it("asks the backend for one notebook's notes", async () => {
     api.listNotes.mockReturnValue(ok({ items: [] }));
 
-    await useNotesStore().load("nb-1");
+    const { result: query, wrapper } = runInSetup(() => useQuery(() => notesQuery("nb-1")));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(query.status.value).toBe("success"));
 
-    expect(api.listNotes).toHaveBeenCalledWith({ query: { notebookId: "nb-1" } });
+    // `objectContaining`: the query also passes its abort `signal`.
+    expect(api.listNotes).toHaveBeenCalledWith(
+      expect.objectContaining({ query: { notebookId: "nb-1" } }),
+    );
   });
 
-  it("records the error message when loading fails", async () => {
-    api.listNotes.mockReturnValue(fails(new Error("boom")));
+  it("reports a failed load as the error and keeps no data", async () => {
+    api.listNotes.mockReturnValue(fails(rejection(500, undefined)));
 
-    const store = useNotesStore();
-    await store.load();
+    const { result: query, wrapper } = runInSetup(() => useQuery(notesQuery));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(query.status.value).toBe("error"));
 
-    expect(store.error).toBe("boom");
-    expect(store.loading).toBe(false);
+    expect(query.error.value).toBeInstanceOf(ResponseError);
+    expect(query.data.value).toBeUndefined();
   });
 
-  it("ignores a slow response for an older request", async () => {
+  it("shares one request between components asking for the same filter", async () => {
+    api.listNotes.mockReturnValue(ok({ items: [note("1")] }));
+
+    const { result, wrapper } = runInSetup(() => [useQuery(notesQuery), useQuery(notesQuery)]);
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result[0].data.value?.items).toHaveLength(1));
+
+    expect(api.listNotes).toHaveBeenCalledTimes(1);
+    expect(result[1].data.value).toBe(result[0].data.value);
+  });
+
+  it("shows the newest filter when an older response lands last", async () => {
     let finishOlder!: (value: unknown) => void;
     api.listNotes
       .mockReturnValueOnce({ unwrap: () => new Promise((resolve) => (finishOlder = resolve)) })
       .mockReturnValueOnce(ok({ items: [note("newer")] }));
 
-    const store = useNotesStore();
-    const older = store.load("a");
-    await store.load("b");
+    const notebookId = ref<string | null>("a");
+    const { result: query, wrapper } = runInSetup(() =>
+      useQuery(() => notesQuery(notebookId.value)),
+    );
+    unmount = () => wrapper.unmount();
+    await nextTick();
 
-    finishOlder({ items: [note("older")] }); // arrives last, but is stale
-    await older;
+    notebookId.value = "b";
+    await vi.waitFor(() => expect(query.data.value?.items.map((n) => n.id)).toEqual(["newer"]));
 
-    expect(store.notes.map((n) => n.id)).toEqual(["newer"]);
-    expect(store.loading).toBe(false);
+    finishOlder({ items: [note("older")] }); // arrives last, but belongs to the other filter
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(query.data.value?.items.map((n) => n.id)).toEqual(["newer"]);
   });
+});
 
-  it("puts a created note first and reports success", async () => {
-    api.listNotes.mockReturnValue(ok({ items: [note("1")] }));
+describe("useCreateNote", () => {
+  it("saves, then refetches the list that is on screen", async () => {
+    api.listNotes.mockReturnValueOnce(ok({ items: [] }));
     api.createNote.mockReturnValue(ok(note("2")));
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      write: useCreateNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result.list.data.value).toEqual({ items: [] }));
 
-    const store = useNotesStore();
-    await store.load();
-    const result = await store.create({ title: "Newer" });
+    api.listNotes.mockReturnValueOnce(ok({ items: [note("2")] })); // what the server saved
+    const saved = await result.write.create({ title: "2" });
 
-    expect(result).toEqual({ ok: true });
-    expect(store.notes.map((n) => n.id)).toEqual(["2", "1"]);
-    expect(store.saving).toBe(false);
+    expect(saved).toEqual({ ok: true });
+    expect(result.list.data.value?.items.map((n) => n.id)).toEqual(["2"]);
+    expect(result.write.saving.value).toBe(false);
   });
 
   it("returns the backend's error code and message when the API rejects the note", async () => {
@@ -210,36 +293,170 @@ describe("useNotesStore", () => {
         rejection(400, { code: "title_too_long", message: "Title may be at most 200 characters." }),
       ),
     );
+    const { result, wrapper } = runInSetup(() => useCreateNote());
+    unmount = () => wrapper.unmount();
 
-    const result = await useNotesStore().create({ title: "x" });
+    const saved = await result.create({ title: "x" });
 
-    expect(result).toEqual({
+    expect(saved).toEqual({
       ok: false,
       code: "title_too_long",
       message: "Title may be at most 200 characters.",
     });
   });
 
-  it("returns a null code for a failure that is not an ApiError", async () => {
-    api.createNote.mockReturnValue(fails(new Error("network down")));
+  it("does not fail a saved note when the refetch afterwards fails", async () => {
+    api.listNotes.mockReturnValueOnce(ok({ items: [] }));
+    api.createNote.mockReturnValue(ok(note("2")));
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      write: useCreateNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result.list.status.value).toBe("success"));
 
-    const result = await useNotesStore().create({ title: "x" });
+    api.listNotes.mockReturnValueOnce(fails(rejection(500, undefined)));
+    const saved = await result.write.create({ title: "2" });
 
-    expect(result).toEqual({ ok: false, code: null, message: "network down" });
+    expect(saved).toEqual({ ok: true });
+    await vi.waitFor(() => expect(result.list.error.value).not.toBeNull()); // the list shows it
+  });
+});
+
+describe("useDeleteNote", () => {
+  const ids = (list: { items: { id: string }[] } | undefined) => list?.items.map((n) => n.id);
+
+  it("removes the row at once and puts it back when the delete fails", async () => {
+    api.listNotes.mockReturnValueOnce(ok({ items: [note("a"), note("b")] }));
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result.list.data.value?.items).toHaveLength(2));
+
+    let failDelete!: (error: unknown) => void;
+    api.deleteNote.mockReturnValue({
+      unwrap: () => new Promise((_, reject) => (failDelete = reject)),
+    });
+    api.listNotes.mockReturnValueOnce(ok({ items: [note("a"), note("b")] })); // the truth after settle
+    const removing = result.write.remove("a");
+
+    await vi.waitFor(() => expect(ids(result.list.data.value)).toEqual(["b"]));
+
+    failDelete(rejection(500, undefined));
+    expect((await removing).ok).toBe(false);
+    await vi.waitFor(() => expect(ids(result.list.data.value)).toEqual(["a", "b"]));
+  });
+
+  // The refetch on settle is not the rollback: it can fail, and it skips an unwatched list.
+  it("puts the row back even when the refetch afterwards fails", async () => {
+    api.listNotes.mockReturnValueOnce(ok({ items: [note("a"), note("b")] }));
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result.list.data.value?.items).toHaveLength(2));
+
+    api.deleteNote.mockReturnValue(fails(rejection(500, undefined)));
+    api.listNotes.mockReturnValueOnce(fails(rejection(500, undefined)));
+    const removed = await result.write.remove("a");
+
+    expect(removed.ok).toBe(false);
+    await vi.waitFor(() => expect(result.list.error.value).not.toBeNull());
+    expect(ids(result.list.data.value)).toEqual(["a", "b"]);
+  });
+
+  it("restores a cached list that no component is showing", async () => {
+    const { result, wrapper } = runInSetup(() => ({
+      cache: useQueryCache(),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    const key = notesQuery("x").key; // no component tracks this entry: no refetch will run
+    result.cache.setQueryData(key, { items: [note("a"), note("b")] });
+
+    api.deleteNote.mockReturnValue(fails(rejection(500, undefined)));
+    await result.write.remove("a");
+
+    expect(ids(result.cache.getQueryData(key))).toEqual(["a", "b"]);
+  });
+
+  it("does not stall a list that is still on its first load", async () => {
+    let finishLoad!: (value: unknown) => void;
+    api.listNotes.mockReturnValueOnce({
+      unwrap: () => new Promise((resolve) => (finishLoad = resolve)),
+    });
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+
+    api.deleteNote.mockReturnValue({ unwrap: () => new Promise(() => {}) }); // never settles
+    void result.write.remove("a");
+    finishLoad({ items: [note("a")] });
+
+    await vi.waitFor(() => expect(ids(result.list.data.value)).toEqual(["a"]));
+  });
+
+  it("edits no list when the update fails on one of them", async () => {
+    const { result, wrapper } = runInSetup(() => ({
+      cache: useQueryCache(),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    const readable = notesQuery("x").key;
+    result.cache.setQueryData(readable, { items: [note("a"), note("b")] });
+    result.cache.setQueryData([...notesKey, { notebookId: "y" }], undefined); // loaded, nothing to filter
+
+    const removed = await result.write.remove("a");
+
+    expect(removed.ok).toBe(false);
+    expect(ids(result.cache.getQueryData(readable))).toEqual(["a", "b"]);
+  });
+
+  it("leaves a list alone when another change touched it after the delete", async () => {
+    api.listNotes.mockReturnValueOnce(ok({ items: [note("a"), note("b")] }));
+    const { result, wrapper } = runInSetup(() => ({
+      list: useQuery(notesQuery),
+      cache: useQueryCache(),
+      write: useDeleteNote(),
+    }));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result.list.data.value?.items).toHaveLength(2));
+
+    let failDelete!: (error: unknown) => void;
+    api.deleteNote.mockReturnValue({
+      unwrap: () => new Promise((_, reject) => (failDelete = reject)),
+    });
+    api.listNotes.mockReturnValueOnce(fails(rejection(500, undefined))); // no refetch to reconcile
+    const removing = result.write.remove("a");
+    await vi.waitFor(() => expect(ids(result.list.data.value)).toEqual(["b"]));
+
+    result.cache.setQueryData(notesQuery().key, { items: [note("c")] }); // someone else wrote
+    failDelete(rejection(500, undefined));
+    await removing;
+
+    expect(ids(result.list.data.value)).toEqual(["c"]); // not overwritten with the old snapshot
   });
 });
 ```
 
-- Return `{ unwrap: () => Promise.resolve(value) }` (success) or `{ unwrap: () => Promise.reject(error) }` (failure): exactly what the stores use.  Small helpers (`ok(value)`, `fails(error)`) keep tests readable.
-- For failures build a real `ResponseError` (as above) so the error-mapping code is exercised and the `code` reaches the store.
-- `setActivePinia(createPinia())` in `beforeEach`: a fresh store per test.
-- Assert the **state after** the action (`store.notes`, `store.error`, `store.loading`), not that a function was called with particular arguments, unless the arguments are the point (a request body, a filter).
-- Test the **concurrency** a store handles: a slow response arriving after a newer one, two callers sharing one request (`data-loading.md`).
+- Return `{ unwrap: () => Promise.resolve(value) }` (success) or `{ unwrap: () => Promise.reject(error) }` (failure): exactly what the query functions use.  Small helpers (`ok(value)`, `fails(error)`) keep tests readable.
+- For failures build a real `ResponseError` (as above) so the error-mapping code is exercised and the `code` reaches the `SaveResult`.
+- **Arrange the mock before the query exists.**  A query fires when it is created: on mount in `runInSetup`, or on the first use of a store that wraps one.
+- `runInSetup` per test: a fresh Pinia and query cache, so no cached data leaks.  Unmount in `afterEach`.  Never `createTestingPinia`.
+- Wait with `vi.waitFor(() => expect(...))`; the query resolves after the call returns.
+- Assert what the caller sees (`data`, `error`, `status`, `isPending`, the `SaveResult`), not that a function was called with particular arguments, unless the arguments are the point (a request body, a filter).
+- Test the **concurrency** the key handles: the newest key wins over a slow older response, one key shares one request, a write refetches the list, a failed optimistic change rolls back even when the refetch fails too (`data-loading.md`).
+- A store that wraps a query (`session-store.test.ts`) calls `installTestPinia()` in `beforeEach` and creates the store after it arranges the mock.
 - A test that needs HTTP behavior stubs `fetch` (`api-client.md`); the guard in `setup.ts` makes any other network call loud.
 
 ## Page tests: through the whole app
 
-Unit tests miss broken wiring: a missing plugin, a bad route, a layout that throws.  A page test mounts the **real app** (router, layout, Nuxt UI, Pinia, stores) and mocks only the API.  Mount at a route:
+Unit tests miss broken wiring: a missing plugin, a bad route, a layout that throws.  A page test mounts the **real app** (router, layout, Nuxt UI, Pinia, query cache) and mocks only the API.  Arrange the mocked responses first: the page's queries fire on mount.  Mount at a route:
 
 `src/app/src/pages/notes/index.test.ts (excerpt)`
 
@@ -247,7 +464,7 @@ Unit tests miss broken wiring: a missing plugin, a bad route, a layout that thro
   const root = document.createElement("div");
   document.body.append(root);
   const router = createRouter({ routes, history: createMemoryHistory() });
-  const app = createApp(App).use(createPinia()).use(router).use(ui);
+  const app = createApp(App).use(createPinia()).use(PiniaColada).use(router).use(ui);
 
   await router.push("/notes");
   await router.isReady();
@@ -309,6 +526,7 @@ The baseline smoke test (`App.test.ts`) is the same shape for the home page.  It
 ## Time, environment, and globals
 
 - **Fake timers** for debounce, polling, and timeouts: `vi.useFakeTimers()` in `beforeEach`, `vi.useRealTimers()` in `afterEach`, and `await vi.advanceTimersByTimeAsync(ms)` (runs the timers *and* the promises they start; use it, not the sync version, whenever the callback is async).
+- **Polling:** call `useAutoRefresh` with its query in `runInSetup`, arrange the mock first, and count calls to the generated function after each `advanceTimersByTimeAsync` (`composables/useAutoRefresh.test.ts`).
 - **Environment variables:** `vi.stubEnv("VITE_API_BASE_URL", "")` (Vitest restores them), as `api/errors.test.ts` does.
 - **Browser APIs happy-dom lacks** (`matchMedia` layout, `ResizeObserver`): stub them in the test that needs them (`vi.stubGlobal`); `useIsMobile.test.ts` shows `matchMedia` (`accessibility-responsive.md`).
 - Tests import generated modules like any other; `npm test` regenerates them first.
@@ -318,10 +536,10 @@ The baseline smoke test (`App.test.ts`) is the same shape for the home page.  It
 1. Run the one file: `npx vitest run <path> -t "<name>"`.
 2. `Unexpected network request in a test: <url>`: mock that API function (or stub `fetch` if the real client is the subject).
 3. `Cannot find ... in document`: the content teleported; query `document.body`, mount with `attachTo`.
-4. Assertion before the data arrived: wrap in `vi.waitFor` or `await flushPromises()`.
-5. State leaking between tests: fresh Pinia per test, unmount and clear the body, `afterEach` restores stubs (`restoreMocks`/`unstubAllGlobals` are on).
+4. Assertion before the data arrived: wrap in `vi.waitFor` or `await flushPromises()`.  The mock returns `undefined` or the wrong value: the query fired when it was created, before the test arranged the mock.
+5. State leaking between tests: fresh Pinia and query cache per test (`runInSetup`, `mountWithUi`, `installTestPinia`; never `createTestingPinia`), unmount and clear the body, `afterEach` restores stubs (`restoreMocks`/`unstubAllGlobals` are on).
 6. A confirmation or toast never appears: the component needs `UApp` (`AppHarness`).
-7. In the browser, wrong data: is the right function called with the right arguments (a test with the mock asserting the call tells you), and is a stale response overwriting state?  Wrong render: check the four-state priority (`ui-states.md`) and which store flag drives it.
+7. In the browser, wrong data: is the right function called with the right arguments (a test with the mock asserting the call tells you), and does the query key hold every input?  Wrong render: check the four-state priority (`ui-states.md`) and which query flag (`isPending`, `isLoading`, `isPlaceholderData`) drives it.
 8. A route or component is "not found" by the editor: `npm run build` once regenerates `typed-router.d.ts`, `components.d.ts`, and `auto-imports.d.ts`.
 
 ## Playwright MCP: look at the real UI

@@ -120,7 +120,7 @@ Keep the bundle honest: icons are bundled (`nuxt-ui.md`), routes are code-split 
 
 The backend reports the running build on `GET /api/health` (`version`, `commit`, `builtAtUtc`), stamped by the build (`hg-mdn-backend`, `references/build-info.md`).  `BuildInfoLabel.vue` takes it as a `build` prop and shows `Version 1.4.0`, the short commit, and the build time when the build has them (a local build is `0.0.0-dev` plus the commit).  The scaffold's home page renders it under the health status.
 
-Put it where people look when reporting a problem: the sidebar footer, an about dialog, or the user menu.  `health-store` loads only when a page asks, so a label in the app shell needs the shell to call `refresh()` itself.  It shows the backend that answered; a tab left open across a deploy still runs the old bundle until it reloads (`index.html` is `no-cache`, so the next load gets the new one).
+Put it where people look when reporting a problem: the sidebar footer, an about dialog, or the user menu.  `useQuery(healthQuery)` loads it when a component mounts, shares the request with every other caller (the home page does the same), and refetches stale data when the window regains focus.  A label in the app shell calls `useQuery(healthQuery)` itself and passes `build` down.  It shows the backend that answered; a tab left open across a deploy still runs the old bundle until it reloads (`index.html` is `no-cache`, so the next load gets the new one).
 
 ## Cache and security headers
 

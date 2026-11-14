@@ -1,7 +1,8 @@
 # Front-end Templates (steps 7 and 8)
 
-Vue 3 + Nuxt UI + Vite + TypeScript in `src/app`, with Pinia, VueUse, file-based routing, Kubb
-(OpenAPI → TypeScript client and Zod schemas), `oxlint`/`oxfmt`, and Vitest with `@vue/test-utils`.  Create the files, then `npm install`,
+Vue 3 + Nuxt UI + Vite + TypeScript in `src/app`, with Pinia Colada (server state) and Pinia (client state), VueUse,
+file-based routing, Kubb (OpenAPI → TypeScript client and Zod schemas), `oxlint`/`oxfmt`, and Vitest with
+`@vue/test-utils`.  Create the files, then `npm install`,
 build the backend once (writes the OpenAPI document), and `npm run generate`.
 
 Placeholders (`<PROJECT>`, `<project>`, `<BACKEND_API_PORT>`, `<GUID>`, ...): see `SKILL.md`.
@@ -61,6 +62,7 @@ instead of adding the plugins separately.
   "dependencies": {
     "@iconify-json/hugeicons": "^1.2.35",
     "@nuxt/ui": "^4.11.3",
+    "@pinia/colada": "^1.4.9",
     "@vueuse/core": "^15.0.0",
     "pinia": "^4.0.3",
     "tailwindcss": "^4.3.3",
@@ -434,6 +436,7 @@ After a fresh clone, run `npm run generate` (or `mise run generate`) before buil
 import "./assets/css/main.css";
 
 import ui from "@nuxt/ui/vue-plugin";
+import { PiniaColada } from "@pinia/colada";
 import { createPinia } from "pinia";
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -451,7 +454,9 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
 });
 
+// Pinia first: the query cache is a Pinia store.
 app.use(createPinia());
+app.use(PiniaColada);
 
 // Guards go in before the router starts (installing it starts the first navigation); Pinia is
 // already installed, so the guards can read the session store.
@@ -487,13 +492,14 @@ Shows the backend health and, under it, the running build (`BuildInfoLabel`).  I
 
 ```vue
 <script setup lang="ts">
-// `ref`, `onMounted`, `storeToRefs`, `useDark` etc. are auto-imported.
-import { useHealthStore } from "@/stores/health-store";
+// `ref`, `computed`, `useDark` etc. are auto-imported.
+import { useQuery } from "@pinia/colada";
+import { errorText } from "@/api/errors";
+import { healthQuery } from "@/queries/health";
 
-const store = useHealthStore();
-const { health, loading, error } = storeToRefs(store);
-
-onMounted(() => store.refresh());
+// Loads on mount, shares the request with anyone else asking, and refetches stale data on return.
+const { data: health, error, isPending, isLoading, refetch } = useQuery(healthQuery);
+const loadError = computed(() => errorText(error.value, "Health check failed."));
 </script>
 
 <template>
@@ -508,8 +514,8 @@ onMounted(() => store.refresh());
 
       <!-- Every page that loads data renders the four states: loading, error, empty, content. -->
       <AsyncContent
-        :loading="loading && !health"
-        :error="error"
+        :loading="isPending"
+        :error="loadError"
         :empty="!health"
         empty-title="No result yet"
       >
@@ -520,7 +526,7 @@ onMounted(() => store.refresh());
       </AsyncContent>
 
       <template #footer>
-        <UButton icon="i-hugeicons-reload" :loading="loading" @click="store.refresh()">
+        <UButton icon="i-hugeicons-reload" :loading="isLoading" @click="refetch()">
           Refresh
         </UButton>
       </template>
@@ -529,88 +535,93 @@ onMounted(() => store.refresh());
 </template>
 ```
 
-### `src/app/src/stores/health-store.ts`
+### `src/app/src/queries/health.ts`
 
-The pattern: components use a Pinia store; the store calls the generated client.
+The pattern: one options factory per read.  Components call `useQuery(healthQuery)`; only `src/queries` (and the session store) calls the generated client.
 
 ```ts
-import { acceptHMRUpdate, defineStore } from "pinia";
+import { defineQueryOptions } from "@pinia/colada";
 import { getHealth } from "@/api/generated/clients/getHealth";
-import type { HealthResponse } from "@/api/generated/types/HealthResponse";
-import { errorMessage } from "@/api/errors";
 
-/**
- * Backend health.  Stores own the API calls; components consume the store (never the generated
- * client directly) so loading/error state lives in one place.
- */
-export const useHealthStore = defineStore("health", () => {
-  const health = ref<HealthResponse | null>(null);
-  const loading = ref(false);
-  const error = ref<string | null>(null);
+/** `GET /api/health`.  The root key of this resource; mutations and refreshes invalidate by it. */
+export const healthKey = ["health"] as const;
 
-  /** Fetches the current health; records the error message instead of throwing. */
-  async function refresh() {
-    loading.value = true;
-    error.value = null;
-
-    try {
-      health.value = await getHealth().unwrap();
-    } catch (err: unknown) {
-      error.value = errorMessage(err, "Health check failed.");
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  return { health, loading, error, refresh };
+/** Backend health.  `signal` lets the library cancel a request nobody waits for any more. */
+export const healthQuery = defineQueryOptions({
+  key: healthKey,
+  query: ({ signal }) => getHealth({ signal }).unwrap(),
 });
-
-if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useHealthStore, import.meta.hot));
-}
 ```
 
-### `src/app/src/stores/health-store.test.ts`
+### `src/app/src/queries/health.test.ts`
 
 ```ts
-import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useHealthStore } from "./health-store";
+import { useQuery } from "@pinia/colada";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runInSetup } from "@/test/mount";
+import { healthQuery } from "./health";
 
-const apiMocks = vi.hoisted(() => ({ getHealth: vi.fn() }));
+const api = vi.hoisted(() => ({ getHealth: vi.fn() }));
+vi.mock("@/api/generated/clients/getHealth", () => ({ getHealth: api.getHealth }));
 
-vi.mock("@/api/generated/clients/getHealth", () => ({ getHealth: apiMocks.getHealth }));
+const response = {
+  status: "Healthy",
+  checkedAtUtc: "2026-10-09T00:00:00Z",
+  build: { version: "1.4.0", commit: "3f2a1bc", builtAtUtc: null },
+};
 
-describe("useHealthStore", () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
+let unmount: () => void = () => {};
+afterEach(() => unmount());
+
+describe("healthQuery", () => {
+  it("loads once for every component that asks", async () => {
+    api.getHealth.mockClear();
+    api.getHealth.mockReturnValue({ unwrap: () => Promise.resolve(response) });
+
+    const { result, wrapper } = runInSetup(() => [useQuery(healthQuery), useQuery(healthQuery)]);
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(result[0].data.value).toEqual(response));
+
+    expect(result[1].data.value).toEqual(response);
+    expect(api.getHealth).toHaveBeenCalledTimes(1);
   });
 
-  it("stores the health response on refresh", async () => {
-    const response = {
-      status: "Healthy",
-      checkedAtUtc: "2026-10-09T00:00:00Z",
-      build: { version: "1.4.0", commit: "3f2a1bc", builtAtUtc: null },
-    };
-    apiMocks.getHealth.mockReturnValue({ unwrap: () => Promise.resolve(response) });
+  it("reports a failed call as the error and keeps no data", async () => {
+    api.getHealth.mockReturnValue({ unwrap: () => Promise.reject(new Error("boom")) });
 
-    const store = useHealthStore();
-    await store.refresh();
+    const { result: query, wrapper } = runInSetup(() => useQuery(healthQuery));
+    unmount = () => wrapper.unmount();
+    await vi.waitFor(() => expect(query.status.value).toBe("error"));
 
-    expect(store.health).toEqual(response);
-    expect(store.error).toBeNull();
-    expect(store.loading).toBe(false);
+    expect(query.error.value?.message).toBe("boom");
+    expect(query.data.value).toBeUndefined();
   });
+});
+```
 
-  it("records the error message when the call fails", async () => {
-    apiMocks.getHealth.mockReturnValue({ unwrap: () => Promise.reject(new Error("boom")) });
+### `src/app/src/queries/session.ts`
 
-    const store = useHealthStore();
-    await store.refresh();
+Who is signed in, from `GET /me`: a 401 is a normal answer (`null`), not an error.
 
-    expect(store.health).toBeNull();
-    expect(store.error).toBe("boom");
-  });
+```ts
+import { defineQueryOptions } from "@pinia/colada";
+import { isUnauthorized } from "@/api/errors";
+import { getMe } from "@/api/generated/clients/getMe";
+
+/** `GET /api/me`: who is signed in.  `null` data means nobody is (a 401 is an answer, not an error). */
+export const sessionQuery = defineQueryOptions({
+  key: ["session"],
+  query: async ({ signal }) => {
+    try {
+      return await getMe({ signal }).unwrap();
+    } catch (err: unknown) {
+      if (isUnauthorized(err)) {
+        return null;
+      }
+
+      throw err;
+    }
+  },
 });
 ```
 
@@ -619,75 +630,57 @@ describe("useHealthStore", () => {
 Who is signed in, from `GET /me`: 401 means nobody; other failures keep the previous state.
 
 ```ts
+import { useQuery, useQueryCache } from "@pinia/colada";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { isUnauthorized, errorMessage } from "@/api/errors";
-import { getMe } from "@/api/generated/clients/getMe";
-import type { MeResponse } from "@/api/generated/types/MeResponse";
+import { errorText } from "@/api/errors";
+import { sessionQuery } from "@/queries/session";
 
 /**
  * Who is signed in.  The backend is the authority (`GET /me`): the browser never reads the
  * session cookie or a token.  A 401 means nobody is signed in.  The router guard consults this
  * store; the guard is a convenience, the backend enforces every route.
+ *
+ * The one store that owns a query: the session lives as long as the app, so the query can too.
+ * Pages that load other data call `useQuery` themselves (`data-loading.md`).
  */
 export const useSessionStore = defineStore("session", () => {
-  const user = ref<MeResponse | null>(null);
-  /** True once the first `load()` finished, whatever its outcome: the guard waits for it once. */
-  const checked = ref(false);
-  const error = ref<string | null>(null);
+  const queryCache = useQueryCache();
+  const { data, error, status, refresh, refetch } = useQuery(sessionQuery);
 
+  const user = computed(() => data.value ?? null);
+  /** True once the first check finished, whatever its outcome: the guard waits for it once. */
+  const checked = computed(() => status.value !== "pending");
   const isSignedIn = computed(() => user.value !== null);
   const isAdmin = computed(() => user.value?.isAdmin === true);
 
-  let inFlight: Promise<void> | null = null;
-  let latestLoad = 0;
+  /**
+   * Asks the backend who is signed in.  Concurrent callers share one request.  A failure other
+   * than 401 (a 500, the network) keeps the previous user: a blip on the server must not sign
+   * someone out.  `force` starts a new request (after signing in elsewhere); the newest wins.
+   */
+  async function load(options: { force?: boolean } = {}) {
+    await (options.force ? refetch() : refresh());
+  }
 
   /**
-   * Asks the backend who is signed in.  401 clears the user.  Any other failure (a 500, the
-   * network) keeps the previous state: a blip on the server must not sign someone out.
-   * Concurrent callers share one request; `force` starts a new one (after signing in elsewhere).
+   * Forgets the user (the API answered 401 mid-session, or the user signed out).  Cancels a check
+   * in flight first: `setQueryData` does not, and a response that left before sign-out would
+   * write the old user back.
    */
-  function load(options: { force?: boolean } = {}): Promise<void> {
-    if (inFlight && !options.force) {
-      return inFlight;
-    }
-
-    const request = ++latestLoad;
-    const promise = (async () => {
-      error.value = null;
-
-      try {
-        const me = await getMe().unwrap();
-
-        if (request === latestLoad) {
-          user.value = me;
-        }
-      } catch (err: unknown) {
-        if (request === latestLoad) {
-          if (isUnauthorized(err)) {
-            user.value = null;
-          } else {
-            error.value = errorMessage(err, "Could not check who is signed in.");
-          }
-        }
-      } finally {
-        if (request === latestLoad) {
-          checked.value = true;
-          inFlight = null;
-        }
-      }
-    })();
-
-    inFlight = promise;
-
-    return promise;
-  }
-
-  /** Forgets the user (the API answered 401 mid-session, or the user signed out). */
   function signedOut() {
-    user.value = null;
+    queryCache.cancelQueries({ key: sessionQuery.key });
+    queryCache.setQueryData(sessionQuery.key, null);
   }
 
-  return { user, checked, error, isSignedIn, isAdmin, load, signedOut };
+  return {
+    user,
+    checked,
+    error: computed(() => errorText(error.value, "Could not check who is signed in.")),
+    isSignedIn,
+    isAdmin,
+    load,
+    signedOut,
+  };
 });
 
 if (import.meta.hot) {
@@ -698,9 +691,9 @@ if (import.meta.hot) {
 ### `src/app/src/stores/session-store.test.ts`
 
 ```ts
-import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ResponseError } from "@/api/generated/.kubb/client";
+import { installTestPinia } from "@/test/pinia";
 import { useSessionStore } from "./session-store";
 
 const api = vi.hoisted(() => ({ getMe: vi.fn() }));
@@ -720,7 +713,7 @@ const ada = { subject: "u1", name: "Ada", roles: ["member"], isAdmin: false };
 
 describe("session store", () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
+    installTestPinia();
   });
 
   it("is signed in after a successful check, and reports admin from the backend", async () => {
@@ -746,8 +739,8 @@ describe("session store", () => {
   });
 
   it("keeps the signed-in user when a later check fails for another reason", async () => {
-    const store = useSessionStore();
     api.getMe.mockReturnValueOnce(ok(ada));
+    const store = useSessionStore();
     await store.load();
 
     api.getMe.mockReturnValueOnce(fails(failure(500)));
@@ -768,7 +761,7 @@ describe("session store", () => {
   });
 
   it("lets only the newest check write state", async () => {
-    const store = useSessionStore();
+    // Creating the store starts the first check: arrange its (slow) response before that.
     let releaseSlow: (() => void) | undefined;
     api.getMe.mockReturnValueOnce({
       unwrap: () =>
@@ -776,13 +769,30 @@ describe("session store", () => {
           releaseSlow = () => resolve(ada);
         }),
     });
-    const slow = store.load();
+    const store = useSessionStore();
 
     // A forced check that finds nobody signed in lands first, then the stale slow one resolves.
     api.getMe.mockReturnValueOnce(fails(failure(401)));
     await store.load({ force: true });
     releaseSlow?.();
-    await slow;
+    await vi.waitFor(() => expect(store.checked).toBe(true));
+
+    expect(store.isSignedIn).toBe(false);
+  });
+
+  it("ignores a check that was in flight when signedOut() ran", async () => {
+    let releaseSlow: (() => void) | undefined;
+    api.getMe.mockReturnValueOnce({
+      unwrap: () =>
+        new Promise((resolve) => {
+          releaseSlow = () => resolve(ada);
+        }),
+    });
+    const store = useSessionStore();
+
+    store.signedOut();
+    releaseSlow?.(); // the response that left before sign-out arrives late
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(store.isSignedIn).toBe(false);
   });
@@ -914,11 +924,11 @@ export function safeReturnUrl(value: unknown, fallback = "/"): string {
 ### `src/app/src/router/guards.test.ts`
 
 ```ts
-import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { ResponseError } from "@/api/generated/.kubb/client";
 import { useSessionStore } from "@/stores/session-store";
+import { installTestPinia } from "@/test/pinia";
 import { installGuards, redirectToLoginOnUnauthorized } from "./guards";
 
 const api = vi.hoisted(() => ({ getMe: vi.fn() }));
@@ -967,7 +977,7 @@ function createTestRouter() {
 
 describe("installGuards", () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
+    installTestPinia();
     api.getMe.mockReset();
   });
 
@@ -1052,7 +1062,7 @@ describe("redirectToLoginOnUnauthorized", () => {
   let stop: (() => void) | undefined;
 
   beforeEach(() => {
-    setActivePinia(createPinia());
+    installTestPinia();
     api.getMe.mockReset();
   });
 
@@ -1177,10 +1187,11 @@ async function retry() {
 
 ### `src/app/src/App.test.ts`
 
-Whole-app smoke test: mounts the app (router, Nuxt UI, Pinia) under happy-dom with the API mocked at the generated-client boundary.  Catches broken wiring that unit tests miss.
+Whole-app smoke test: mounts the app (router, Nuxt UI, Pinia, query cache) under happy-dom with the API mocked at the generated-client boundary.  Catches broken wiring that unit tests miss.
 
 ```ts
 import ui from "@nuxt/ui/vue-plugin";
+import { PiniaColada } from "@pinia/colada";
 import https from "node:https";
 import { createPinia } from "pinia";
 import { describe, expect, it, vi } from "vitest";
@@ -1193,13 +1204,13 @@ import App from "./App.vue";
 const api = vi.hoisted(() => ({ getHealth: vi.fn() }));
 vi.mock("@/api/generated/clients/getHealth", () => ({ getHealth: api.getHealth }));
 
-/** Mounts the whole app (router, Nuxt UI, Pinia) at `path` and waits for the route to render. */
+/** Mounts the whole app (router, Nuxt UI, Pinia, query cache) at `path` and waits for the route. */
 async function mountAt(path: string) {
   const root = document.createElement("div");
   document.body.append(root);
 
   const router = createRouter({ routes, history: createMemoryHistory() });
-  const app = createApp(App).use(createPinia()).use(router).use(ui);
+  const app = createApp(App).use(createPinia()).use(PiniaColada).use(router).use(ui);
 
   await router.push(path);
   await router.isReady();
@@ -1257,7 +1268,7 @@ describe("App", () => {
 
 ### `src/app/src/api/errors.ts`
 
-Turns thrown values into something a store can show: the backend's `ApiError` (stable `code`, display `message`) or a fallback; `isUnauthorized` recognizes a 401.  Write actions return a `SaveResult` instead of throwing.
+Turns thrown values into something a page can show: the backend's `ApiError` (stable `code`, display `message`) or a fallback; `errorText` does it for a query's `error` (`null` when nothing failed); `isUnauthorized` recognizes a 401.  A write returns a `SaveResult` instead of throwing.
 
 ```ts
 import { ResponseError } from "@/api/generated/.kubb/client";
@@ -1292,6 +1303,11 @@ export function isUnauthorized(err: unknown): boolean {
 /** A user-facing message for any thrown value, preferring the backend's own message. */
 export function errorMessage(err: unknown, fallback: string): string {
   return toApiError(err)?.message ?? (err instanceof Error ? err.message : fallback);
+}
+
+/** The message for a failed load, or `null` when nothing failed: what `AsyncContent`'s `error` takes. */
+export function errorText(err: unknown, fallback: string): string | null {
+  return err == null ? null : errorMessage(err, fallback);
 }
 
 /**
@@ -1352,6 +1368,24 @@ export function configureApiClient() {
 }
 ```
 
+### `src/app/src/api/colada.d.ts`
+
+Types every query and mutation `error` as the generated `ResponseError`.
+
+```ts
+import type { ResponseError } from "@/api/generated/.kubb/client";
+
+// A non-2xx response fails a query or mutation with the generated client's `ResponseError`
+// (`throwOnError` is on by default), so `error.value?.status` and `error.value?.data` are typed
+// everywhere.  A network failure is a plain `Error` at runtime and `status` is then `undefined`:
+// show errors through `errorText` and `toApiError` (`api/errors.ts`), which handle both.
+declare module "@pinia/colada" {
+  interface TypesConfig {
+    defaultError: ResponseError;
+  }
+}
+```
+
 ### `src/app/src/api/errors.test.ts`
 
 Runs the real generated client with only `fetch` stubbed.  `setConfig` merges, so the cleanup names `baseURL` explicitly; otherwise a test that sets it leaks into the next.
@@ -1360,7 +1394,7 @@ Runs the real generated client with only `fetch` stubbed.  `setConfig` merges, s
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { client } from "@/api/generated/.kubb/client";
 import { getHealth } from "@/api/generated/clients/getHealth";
-import { errorMessage, toApiError } from "./errors";
+import { errorMessage, errorText, toApiError } from "./errors";
 import { configureApiClient } from "./setup";
 
 /** Stubs only `fetch`: everything above it is the real generated client. */
@@ -1428,6 +1462,18 @@ function stubHealthFetch() {
   return () =>
     new URL((fetchMock.mock.calls[0] as unknown as [Request])[0].url, window.location.href);
 }
+
+describe("errorText", () => {
+  it("is null when nothing failed, so it can feed AsyncContent's error directly", () => {
+    expect(errorText(null, "Could not load.")).toBeNull();
+    expect(errorText(undefined, "Could not load.")).toBeNull();
+  });
+
+  it("is the failure's message, or the fallback for a thrown value without one", () => {
+    expect(errorText(new Error("boom"), "Could not load.")).toBe("boom");
+    expect(errorText("oops", "Could not load.")).toBe("Could not load.");
+  });
+});
 
 describe("configureApiClient", () => {
   it("calls a relative /api URL by default: same-origin, with no base URL configured", async () => {
@@ -1699,18 +1745,19 @@ afterEach(() => vi.unstubAllGlobals());
 
 ### `src/app/src/test/mount.ts`
 
-`mount` with the Nuxt UI plugin and a fresh Pinia: component tests use this.
+`mount` with the Nuxt UI plugin, a fresh Pinia, and its query cache: component tests use this.  `runInSetup` runs a query or mutation composable inside a mounted component.
 
 ```ts
 import ui from "@nuxt/ui/vue-plugin";
+import { PiniaColada } from "@pinia/colada";
 import { mount, type ComponentMountingOptions } from "@vue/test-utils";
 import { createPinia } from "pinia";
-import type { Component } from "vue";
+import { defineComponent, type Component } from "vue";
 
 /**
- * `mount` with what every component here needs: the Nuxt UI plugin (theme and injections) and a
- * fresh Pinia.  Pass `attachTo: document.body` when the component teleports (slideovers, modals,
- * popovers) and the test queries `document.body`.
+ * `mount` with what every component here needs: the Nuxt UI plugin (theme and injections), a
+ * fresh Pinia, and its query cache (`PiniaColada`).  Pass `attachTo: document.body` when the
+ * component teleports (slideovers, modals, popovers) and the test queries `document.body`.
  */
 export function mountWithUi<T extends Component>(
   component: T,
@@ -1718,8 +1765,54 @@ export function mountWithUi<T extends Component>(
 ) {
   return mount(component, {
     ...options,
-    global: { ...options.global, plugins: [ui, createPinia(), ...(options.global?.plugins ?? [])] },
+    global: {
+      ...options.global,
+      plugins: [ui, createPinia(), PiniaColada, ...(options.global?.plugins ?? [])],
+    },
   } as ComponentMountingOptions<T>);
+}
+
+/**
+ * Runs a composable (or anything that needs a component's injections, like `useQuery` and
+ * `useMutation`) inside a mounted component, and returns what it returned.  Unmount the wrapper
+ * when done.
+ */
+export function runInSetup<T>(fn: () => T) {
+  let result!: T;
+  const wrapper = mountWithUi(
+    defineComponent({
+      setup() {
+        result = fn();
+        return () => null;
+      },
+    }),
+  );
+
+  return { result, wrapper };
+}
+```
+
+### `src/app/src/test/pinia.ts`
+
+For tests of a store that wraps a query: a real Pinia with the query cache, active and attached to an app (the cache needs one).  Never `createTestingPinia`: it breaks the cache.
+
+```ts
+import { PiniaColada } from "@pinia/colada";
+import { createPinia, setActivePinia } from "pinia";
+import { createApp } from "vue";
+
+/**
+ * A fresh Pinia **and query cache** for a test that uses stores or queries outside a component.
+ * The cache is a Pinia store, so a new Pinia means no data left over from the previous test.
+ * It is installed in an app so `useQuery` finds its injections.  Never use `createTestingPinia`:
+ * it stubs the actions the query cache relies on.
+ */
+export function installTestPinia() {
+  const pinia = createPinia();
+  createApp({}).use(pinia).use(PiniaColada);
+  setActivePinia(pinia);
+
+  return pinia;
 }
 ```
 

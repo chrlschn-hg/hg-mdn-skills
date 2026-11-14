@@ -69,8 +69,8 @@ Turn requirements into an approach:
 Make the draft implementable with no ambiguity:
 
 - **Specific**: name the files and the lines or members to change; show annotated snippets of the key changes
-- **Phased, bottom-up**, each phase writing its tests with its code (handler test first): models, entities, and migrations; services and stores; handlers; endpoints and the OpenAPI contract; regenerate the client; front-end stores; pages and components; UI verification
-- **A test plan**: the scenarios to cover, by level (handler, store, store integration, front-end store, component, page); say where a human must coordinate (a signed-in session, a device)
+- **Phased, bottom-up**, each phase writing its tests with its code (handler test first): models, entities, and migrations; services and stores; handlers; endpoints and the OpenAPI contract; regenerate the client; front-end queries and mutations; pages and components; UI verification
+- **A test plan**: the scenarios to cover, by level (handler, store, store integration, front-end query, component, page); say where a human must coordinate (a signed-in session, a device)
 - **The flow**: the logical path of data and calls through the feature
 - **Telemetry**: logs, spans, and metrics to add (`hg-mdn-backend`, `references/telemetry-logging.md`)
 - **Open Decisions**: every unresolved choice in one section, each with options and a recommendation

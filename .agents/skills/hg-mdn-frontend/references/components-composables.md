@@ -1,24 +1,24 @@
 # Components and Composables
 
-Where behavior goes: **stores** own server state, **composables** own reusable stateful behavior, **components** own presentation, **utils** own pure functions.  Where files live, SFC order, styling, and the template rule: `project-structure.md`.
+Where behavior goes: **queries** own server state (`data-loading.md`), **stores** hold client state (`state-pinia.md`), **composables** own reusable stateful behavior, **components** own presentation, **utils** own pure functions.  Where files live, SFC order, styling, and the template rule: `project-structure.md`.
 
 ## Data flow: the page is the hub
 
-State flows **down as props** and decisions flow **up as events**; the page (the route component) is where state meets the stores.
+State flows **down as props** and decisions flow **up as events**; the page (the route component) is where state meets the queries and stores.
 
 ```text
-store state --storeToRefs--> page ----props----> child component
-                              ^  |                   |
-        calls store actions --+  +-- v-model --------+  (defineModel: two-way)
-                              +--------- emit --------+  (a user decision: "submit", "confirm")
+query data --useQuery--> page ----props----> child component
+                          ^  |                   |
+     mutations, actions --+  +-- v-model --------+  (defineModel: two-way)
+                          +--------- emit --------+  (a user decision: "submit", "confirm")
 ```
 
-- **Pages and the app shell (layout, router guards) consume stores** (`storeToRefs` for state, actions straight off the store); every other component gets props.  The page handles events that need a store and passes state down.
+- **Pages and the app shell (layout, router guards) read queries and stores** (`useQuery` for server data; `storeToRefs` for store state, actions straight off the store); every other component gets props.  The page handles events that need a mutation or a store and passes state down.
 - **Events, not callbacks:** `emit("submit", draft)`, never `:onSave="save"`: events are typed in the component's signature and compose with `v-model`.
 - **Two-way binding with `defineModel`** when a child edits a value the parent owns (`v-model="search"`, `v-model:open="slideoverOpen"`).
 - **`defineExpose` is the one sanctioned downward command**, for results that arrive after an emit (a form's `showFailure()` and `reset()`); call it through a template ref (`useTemplateRef`).  Anything declarative is a prop.
 - Split a page or component when it mixes concerns (a filter bar, a table, a form): extract a child or a composable.
-- **The notes page is the canonical example** (`lists-tables.md`): it reads two stores, owns the filter state, passes rows and flags to `AsyncContent`, `UTable`, and the slideover, and handles the slideover's `submit` event.
+- **The notes page is the canonical example** (`lists-tables.md`): it reads two queries (notes and notebooks), owns the filter state, passes rows and flags to `AsyncContent`, `UTable`, and the slideover, and handles the slideover's `submit` event.
 
 ## Components
 
@@ -151,7 +151,7 @@ describe("SearchBox", () => {
 
 | Mistake | Instead |
 |---|---|
-| a child imports a store or the API client | the page passes state as props and handles the child's events |
+| a child imports a query, a mutation, a store, or the API client | the page passes state as props and handles the child's events |
 | a callback passed as a prop (`:onSave="save"`) | `defineEmits` and `emit("save", ...)` |
 | functions and lookups called from the template per row | a computed view model |
 | mutating a prop (`props.items.push(...)`) | emit, or copy to local state |
@@ -162,7 +162,7 @@ describe("SearchBox", () => {
 
 ## Composables
 
-A composable is a function named `useThing` that uses Vue reactivity and returns refs and functions.  Use one when behavior is **stateful, reusable, and not a server resource** (that is a store).  Worked examples: `useClientList` (`lists-tables.md`), `useAutoRefresh` (`data-loading.md`), `useIsMobile` (`accessibility-responsive.md`).
+A composable is a function named `useThing` that uses Vue reactivity and returns refs and functions.  Use one when behavior is **stateful, reusable, and not a server resource** (that is a query).  Worked examples: `useClientList` (`lists-tables.md`), `useAutoRefresh` (`data-loading.md`), `useIsMobile` (`accessibility-responsive.md`).
 
 - **Name** `useThing`; **file** `useThing.ts` in `src/composables/`, test beside it.
 - **Options object in, plain object out.**  Accept `MaybeRefOrGetter<T>` for inputs that may be reactive and unwrap with `toValue()`; return refs, not unwrapped values.

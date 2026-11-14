@@ -71,8 +71,8 @@ Priority: **error**, then **loading**, then **content**, then **empty**.  A fail
 
 ```vue
 <AsyncContent
-  :loading="firstLoad"
-  :error="error"
+  :loading="isPending"
+  :error="loadError"
   :empty="!total"
   empty-title="No notes"
   :empty-description="search ? 'No note matches your search.' : 'Add your first note.'"
@@ -81,11 +81,11 @@ Priority: **error**, then **loading**, then **content**, then **empty**.  A fail
 </AsyncContent>
 ```
 
-- **`firstLoad`** is a `computed` (`loading && !notes.length`): skeletons only for the *first* load.  On a refresh the rows stay on screen while the new data arrives (no flash of skeletons under auto-refresh).
+- **`isPending`** (from `useQuery`) is true only until the first load of that key finishes, with data or with an error: skeletons only for the *first* load.  A new key without `placeholderData` is pending again, so a filter change shows skeletons unless the query keeps the previous rows.  On a refresh or a filter change the rows stay on screen while the new data arrives (no flash of skeletons under auto-refresh); dim them while `isPlaceholderData` is true (`data-loading.md`).  **`loadError`** is `computed(() => errorText(error.value, "Could not load notes."))`: `null` when nothing failed.
 - **`:empty`** is true when the load finished and there is nothing to show.  Make the message depend on *why* it is empty (no data yet vs. nothing matches the search): `UEmpty`'s `description` and `actions` (a "Create" button) turn a dead end into the next step.
 - **Slots replace the defaults** when the page needs something specific: `#loading` (skeleton shaped like the content), `#empty` (a custom call to action).
 - It is generic over content: tables, lists, cards, detail panels.
-- **An error replaces the content with the alert**, even when rows are already loaded.  To keep the last good rows visible through a failed refresh, pass `:error="null"` and render a `UAlert v-if="error"` above `AsyncContent` yourself; decide per page whether stale rows are acceptable.
+- **An error replaces the content with the alert**, even when rows are already loaded.  To keep the last good rows visible through a failed refresh, pass `:error="null"` and render a `UAlert v-if="loadError"` above `AsyncContent` yourself (the query keeps its last good `data`); decide per page whether stale rows are acceptable.
 
 The shipped `AsyncContent.test.ts` covers each state; copy its shape for a new state component.
 
@@ -94,9 +94,9 @@ The shipped `AsyncContent.test.ts` covers each state; copy its shape for a new s
 | State | Component | Notes |
 |---|---|---|
 | Loading, first load | `USkeleton` (shaped like the content) | `aria-busy` on the wrapper; never a bare spinner for a whole page |
-| Loading, an action | `loading` prop on `UButton` | the button disables itself while loading |
-| Loading, refresh | keep the content; a small spinner or the button's `loading` | do not blank the page |
-| Error, page-level | `UAlert color="error" variant="subtle"` with `role="alert"` | the store's `error` string |
+| Loading, an action | `loading` prop on `UButton` | `saving`, a mutation's `isLoading`; the button disables itself while loading |
+| Loading, refresh | keep the content; a small spinner or the button's `loading` | `isLoading`; do not blank the page |
+| Error, page-level | `UAlert color="error" variant="subtle"` with `role="alert"` | `errorText(error.value, fallback)` of the query |
 | Error, field | the field's own message (`UFormField`) | see `forms.md` |
 | Error, action | toast (`useToast`) | transient; the user is not blocked |
 | Empty | `UEmpty` (icon, title, description, actions) | explain and offer the next step |
@@ -123,5 +123,5 @@ toast.add({ title: "Could not save the note", description: result.message, color
 ## Rules
 
 1. Every data-loading page uses `AsyncContent` (or renders all four states by hand with the same priority).
-2. Stores expose `loading`, `error`, and (for writes) `saving`; **components never invent their own flags** for the same thing (`state-pinia.md`).
+2. A query exposes `isPending` (first load), `isLoading` (a request runs), `isPlaceholderData`, and `error` (read it with `errorText(error.value, ...)`); a mutation composable exposes `saving` (its `isLoading`).  **Components never invent their own flags** for the same thing (`data-loading.md`).
 3. Disable and spin the control that started the action (`:loading="saving"`); never leave a double-submit possible.

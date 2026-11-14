@@ -1,78 +1,82 @@
-# State with Pinia
+# Client State with Pinia
 
-Pinia setup stores hold server state and shared UI state.  **Stores are the only code that calls the generated API client**: one place for loading, saving, and error state per resource, one boundary to mock in tests (`testing.md`), and a contract change that touches the store and the type checker rather than every component.  Components read store state and call store actions.
+**Pinia holds client state: what the browser knows and the server does not.**  Selection, view preferences, a wizard's draft, the open panel.  **Server state** (anything the backend owns: lists, records) belongs to Pinia Colada queries, not to a store: `data-loading.md`.  Colada's cache is itself a Pinia store, so the two share one `createPinia()` instance (`main.ts` installs both).
+
+| It is | It lives in |
+|---|---|
+| a list or record from the API | a query in `src/queries/<resource>.ts` (`data-loading.md`) |
+| the signed-in user | `session-store.ts`, the one store that wraps a query (below) |
+| a selection, a filter the user set, a view mode, a multi-step draft | a Pinia setup store, or a local `ref` when only one component needs it |
+| a form's field values | local `ref`s in the form component (`forms.md`) |
+| the URL's params and query string | the router (`route.params`, `route.query`) |
+
+Two rules keep the split clean:
+
+- **Never copy query data into a store `ref`.**  A copy goes stale, and the cache already shares one entry between components.  Derive with `computed` from the query's `data`.
+- **A store never calls the generated client.**  Reads are queries; writes are mutations (`data-loading.md`).  Only `src/queries` imports a client (and `session-store.ts` through `queries/session.ts`).
 
 ## The shape of a store
 
-State and the flags a component binds to (`notes-store.ts`, the Notes example; `health-store.ts` ships in the baseline):
+A setup store: `ref` is state, `computed` is a getter, a function is an action.
 
-`src/app/src/stores/notes-store.ts (excerpt)`
-
-```ts
-export const useNotesStore = defineStore("notes", () => {
-  const notes = ref<NoteResponse[]>([]);
-  const loading = ref(false);
-  const saving = ref(false);
-  const error = ref<string | null>(null);
-```
-
-A write returns a `SaveResult` and updates state from the server's response; the setup function returns everything components need:
-
-`src/app/src/stores/notes-store.ts (excerpt)`
+`src/app/src/stores/notes-view-store.ts (example)`
 
 ```ts
-  /** Creates a note and puts it first.  The failure carries the backend's error `code`. */
-  async function create(draft: NoteDraft): Promise<SaveResult> {
-    saving.value = true;
+import { acceptHMRUpdate, defineStore } from "pinia";
 
-    try {
-      const created = await createNote({ body: draft }).unwrap();
-      notes.value = [created, ...notes.value];
-      return { ok: true };
-    } catch (err: unknown) {
-      return toSaveFailure(err, "Could not save the note.");
-    } finally {
-      saving.value = false;
-    }
+/** How the Notes page is laid out and what is selected.  Server data comes from `queries/notes.ts`. */
+export const useNotesViewStore = defineStore("notes-view", () => {
+  // Persisted per browser (VueUse `useStorage`, auto-imported); namespaced key `<feature>:<thing>`.
+  const layout = useStorage<"table" | "cards">("notes:layout", "table");
+  const selectedId = ref<string | null>(null);
+
+  function select(id: string | null) {
+    selectedId.value = id;
   }
 
-  return { notes, loading, saving, error, load, create };
+  return { layout, selectedId, select };
+});
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useNotesViewStore, import.meta.hot));
+}
 ```
 
 Rules:
 
-- **Setup syntax** (`defineStore("id", () => { ... })`): `ref` is state, `computed` is a getter, functions are actions.
+- **Setup syntax** (`defineStore("id", () => { ... })`).  Return everything components use.
 - **Id** is a stable kebab-case string; the file is `<thing>-store.ts` and the export `use<Thing>Store`.
-- **One store per resource**, roughly one per API tag (`notes-store.ts` for the Notes tag).  The signed-in user is the shipped `session-store.ts`; a feature's UI state goes in that feature's store.
-- **Expose** `loading` and `error` (a message string or `null`) for loads, and a separate `saving` when the UI shows a write in progress.  Components bind to these (`:loading="saving"`, `<UAlert v-if="error">`).
-- **Actions record errors; they do not throw.**  Loads set `error`.  A write the caller must react to returns a `SaveResult` (`api-client.md`), so a form can show the backend's message on the right field (`forms.md`).  Throw only when the caller cannot continue (for example a failed startup load a guard depends on).
-- **Reset `error` at the start** of each action; clear `loading`/`saving` in `finally`.
-- **Use the backend's message** for expected failures (`ApiError`), a fallback for everything else: `errorMessage(err, "Could not save the note.")`.
-- **Concurrency** (stale responses, shared in-flight requests, optimistic updates): `data-loading.md`.
-- **HMR:** end each store file with the `acceptHMRUpdate` block (copy it from `health-store.ts`).  Stores import `defineStore` and `acceptHMRUpdate` from `pinia` explicitly; `ref`, `computed`, and `storeToRefs` are auto-imported.
-- **Persisted preferences** use VueUse's `useStorage` inside the store with namespaced keys (`<feature>:<thing>`); never tokens or secrets, and treat stored data as untrusted (it may come from an older version).
+- **Keep a store small and named for the UI concern** (`notes-view`, `checkout-draft`), not for a resource: the resource is a query.  Prefer a local `ref` or a composable until two unrelated components need the same state.
+- **Persisted preferences** use `useStorage` with namespaced keys (`<feature>:<thing>`); never tokens or secrets, and treat stored data as untrusted (an older version may have written it).
+- **HMR:** end each store file with the `acceptHMRUpdate` block (copy it from `session-store.ts`).  Stores import `defineStore` and `acceptHMRUpdate` from `pinia` explicitly; `ref`, `computed`, and `storeToRefs` are auto-imported.
 - A store may use another store **inside an action or computed**, never at module top level; avoid cycles.
 
 ## Using a store in a component
 
 ```vue
 <script setup lang="ts">
-import { useNotesStore } from "@/stores/notes-store";
+import { useNotesViewStore } from "@/stores/notes-view-store";
 
-const store = useNotesStore();
+const view = useNotesViewStore();
 // Destructure state with storeToRefs (keeps reactivity); actions come straight off the store.
-const { notes, loading, error } = storeToRefs(store);
-
-onMounted(() => store.load());
+const { layout, selectedId } = storeToRefs(view);
 </script>
 ```
 
-- Destructure **state and getters** with `storeToRefs`; call **actions** on the store (`store.load()`).
-- Load in `onMounted` when the input is fixed; when it can change (a filter, a route param) use `watch(source, load, { immediate: true })` instead, never both.  A router guard loads data a page cannot render without.
-- **Pages and the app shell (layout, router guards) consume stores; everything else gets props** and emits events, so it stays testable and reusable (`components-composables.md`).
+- Destructure **state and getters** with `storeToRefs`; call **actions** on the store (`view.select(id)`).
+- **Pages and the app shell (layout, router guards) read stores; everything else gets props** and emits events, so it stays testable and reusable (`components-composables.md`).
+
+## The session store: the one store that owns a query
+
+The signed-in user lives as long as the app runs, and the router guard needs it outside any component.  `session-store.ts` (it ships in the baseline) wraps `useQuery(sessionQuery)` and exposes `user`, `checked`, `isSignedIn`, `isAdmin`, `error`, `load()`, and `signedOut()`.  `queries/session.ts` turns a 401 into `null` data, so "nobody signed in" is a normal result and not an error.
+
+- `load()` joins the check in flight; `load({ force: true })` starts a new one (after signing in elsewhere).  The guard calls `load()`, so every route change shares one request.
+- `signedOut()` cancels a check in flight, then writes `null` into the cache (`setQueryData`): the API answered 401 mid-session, or the user signed out.  The cancel matters: without it a response that left before sign-out writes the old user back.
+- A failure other than 401 (a 500, the network) keeps the previous user: a blip on the server must not sign someone out.
+- Do not add another store like it.  A page that needs a resource calls `useQuery` itself.
 
 ## What does not belong in a store
 
+- Anything the backend owns (`data-loading.md`) or the router holds (`route.params`, `route.query`).
 - Form field state for a single form (local `ref`s in the form component: `forms.md`).
-- Pure functions (`utils/`), and reusable stateful behavior without a server resource (a composable: `components-composables.md`).
-- Anything the router already holds (`route.params`, `route.query`).
+- Pure functions (`utils/`), and reusable stateful behavior without shared state (a composable: `components-composables.md`).
