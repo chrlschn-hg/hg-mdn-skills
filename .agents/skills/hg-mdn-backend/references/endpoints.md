@@ -120,7 +120,7 @@ public sealed class CreateNoteHandler(INoteStore store) : IEndpointHandler
 
 Rules:
 
-- **Return `Results<A, B, ...>` of `TypedResults`.**  The union documents every status code in OpenAPI and gives the generated client typed errors.  A handler with one outcome returns `Ok<T>` (`ListNotesHandler`).
+- **Return `Results<A, B, ...>` of `TypedResults`.**  The union documents every status code in OpenAPI and gives the generated client typed errors.  A handler with one outcome returns `Ok<T>` (`ListNotesHandler`).  `Results<>` holds at most six arms; a stub uses one for `Stub`.
 - **Validate explicitly with guard clauses**, in a fixed order, each returning a distinct `ApiError` code (`snake_case`).  The front-end switches on `Code`; the message is for humans.
 - **Expected failures are results, not exceptions.**  Validation -> `BadRequest<ApiError>`; duplicate or limit -> `Conflict<ApiError>`; a row that is missing or that the caller may not see -> `NotFound`, so existence is not leaked.  Which status means what: `route-security.md`, "Status codes at a glance".
 - **Rules shared with a job, an import, or another slice live in core code that returns a union**, and the handler maps each outcome with an exhaustive `switch` (`unions-and-closed-hierarchies.md`, "Outcomes instead of exceptions").
@@ -219,4 +219,6 @@ Defaults are camelCase.  Not in the template: configure `JsonStringEnumConverter
 3. Handler returning `Results<...>`; register nothing by hand.
 4. `MapGet/MapPost(...)` with `WithName`, `WithSummary`, and `WithDescription` in the slice's `IEndpoint`.  Security: nothing to add for "signed-in users only"; otherwise a role, a group guard, `AllowAnonymous` with its comment and a line in the lint test, or `IAdminEndpoint` (`route-security.md`).  Name the role in `WithDescription` when it is not the default (signed in).
 5. `dotnet build`, then read the operation in `src/app/src/api/<project>-api.json` or the Scalar UI: does the description tell a caller what they need to know?  Then `mise run generate`.
-6. Run `<PROJECT>.Api.Tests` (descriptions lint, route-security tests) and `<PROJECT>.Runtime.Tests` (every route secured or listed as anonymous).
+6. Run `<PROJECT>.Api.Tests` (descriptions lint, route-security tests) and `<PROJECT>.Runtime.Tests` (every route secured or listed as anonymous, every stub listed).
+
+**Contract first (stub).**  When the front-end must build before the behavior exists, replace step 3 with a stub handler and keep the rest: the same records, the same endpoint with the final `WithName`, `WithSummary`, `WithDescription`, every status, every error code, and the final security.  The stub returns `Stub` as the last arm of the final `Results<...>`, takes no constructor dependencies, and gets a `StubOperations` entry.  **Never throw `NotImplementedException`**: it answers 500, adds nothing to the contract, and the lint cannot see it.  Worked example, gates, and the switch: `openapi-contract.md` ("Contract first: stub operations"); slice steps: `feature-slices.md`.

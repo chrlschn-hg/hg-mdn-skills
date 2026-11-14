@@ -56,7 +56,8 @@ var bytes = Legacy.Export(report);
 ```ini
 # .editorconfig
 [*.cs]
-# Handlers and stores are instances resolved from DI; "mark it static" fights the design.
+# Handlers and stores are instances resolved from DI; "mark it static" fights the design.  A stub
+# handler (no dependencies, returns `Stub`) trips it the same way.
 dotnet_diagnostic.CA1822.severity = none
 ```
 

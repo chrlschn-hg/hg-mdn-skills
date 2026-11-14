@@ -199,10 +199,11 @@ echo "OK: $health"
 
 ### `.github/workflows/ci.yml`
 
-Backend tests use Testcontainers (Docker is preinstalled on `ubuntu-latest`).  `--report-trx` and `--results-directory` are Microsoft Testing Platform options.  The `image` job builds the Dockerfile (a broken image is found on the pull request, not at publish time) and runs `build/smoke.sh` against it with a Postgres service; the app applies its migrations on start.
+Backend tests use Testcontainers (Docker is preinstalled on `ubuntu-latest`).  `--report-trx` and `--results-directory` are Microsoft Testing Platform options.  The `image` job builds the Dockerfile (a broken image is found on the pull request, not at publish time) and runs `build/smoke.sh` against it with a Postgres service; the app applies its migrations on start.  CI allows stub operations (`x-implementation: stub` in the OpenAPI document): a contract PR merges before its handlers exist.  The release path does not (`references/release.md`, the "No stub operations" step); `StubLintTests` keeps the list of stubs reviewed.
 
 ```yaml
-# Build and test on every pull request and on pushes to main.
+# Build and test on every pull request and on pushes to main.  Stub operations are legal here
+# (a contract merges before its handlers); the release workflow rejects them.
 #
 # Backend integration tests use Testcontainers, which needs Docker; ubuntu runners have it.
 # Tools (.NET SDK, Node, ...) come from `.config/mise.toml` so CI matches local development.
@@ -246,8 +247,16 @@ jobs:
 
       # The build rewrites the OpenAPI document; the front-end client and the Docker image are
       # generated from the committed copy, so a difference is a contract change nobody committed.
-      - name: OpenAPI document is committed
-        run: git diff --exit-code -- src/app/src/api/<project>-api.json
+      - name: OpenAPI document is committed and current
+        run: |
+          # `git diff --exit-code` passes for a new, untracked document.  `git status` fails for an
+          # untracked, modified, or staged-but-uncommitted file.
+          doc=src/app/src/api/<project>-api.json
+          if [[ -n "$(git status --porcelain -- "$doc")" ]]; then
+            echo "::error::The OpenAPI document is not committed and current: run mise run openapi and commit $doc"
+            git --no-pager diff -- "$doc"
+            exit 1
+          fi
 
       # Microsoft.Testing.Platform (see `global.json`) uses reporters instead of VSTest loggers;
       # `--report-trx` writes the TRX consumed by the report action below.
@@ -342,7 +351,7 @@ jobs:
 
 ### `.github/workflows/docker-publish.yml`
 
-Main builds only: `latest` is the head of main and `sha-<commit>` that commit, and they report `0.0.0-dev` plus the commit.  Versioned images come from the release workflow (`references/release.md`, which also has the tag-triggered variant for projects that release by tagging).
+Main builds only: `latest` is the head of main and `sha-<commit>` that commit, and they report `0.0.0-dev` plus the commit.  Versioned images come from the release workflow (`references/release.md`, which also has the tag-triggered variant for projects that release by tagging).  A main build may contain stub operations; a versioned image may not (the release workflow's gate).
 
 ```yaml
 # Build the runtime image and push it to GitHub Container Registry (ghcr.io/<owner>/<repo>) on

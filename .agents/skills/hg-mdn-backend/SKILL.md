@@ -37,6 +37,7 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 - Handlers return `Results<...>` of `TypedResults`; expected failures are `ApiError` results with a distinct `snake_case` code; explicit guard clauses validate (`references/endpoints.md`)
 - **Expected outcomes are values, not exceptions.**  Core code returns a **union** (C# 15) or a **`closed` hierarchy**; the handler maps it with an exhaustive `switch`: a `null` arm, no `_`.  Throw only for bugs and infrastructure failures; never `catch` to choose a branch (`references/unions-and-closed-hierarchies.md`)
 - Every endpoint sets `WithName`, `WithSummary`, and `WithDescription`; `<PROJECT>.Api.Tests` fails `mise run test` and CI without them.  After a contract change: `dotnet build`, then `mise run generate` (`references/openapi-contract.md`)
+- **Contract first when the front-end builds in parallel:** publish the contract before the handlers.  A stub operation has the final records, endpoint, descriptions, and security, and a handler that returns `Stub` as the last arm of its `Results<...>`; never `NotImplementedException`.  Each stub is listed in `StubOperations` (`StubLintTests`); a release fails while one exists.  The switch removes the `Stub` arm and the list entry; the document diff is the removed `x-implementation` (`references/openapi-contract.md`, "Contract first: stub operations"; front-end half: `hg-mdn-frontend`, `references/mocking.md`)
 - A model change needs a migration.  **Multi-tenant?  The tenant id is part of every key, foreign key, and index**: decide before the first entity (`references/data-efcore.md`).  Short public ids (NanoID) and reorderable rows (LexoRank): `references/ids-and-ordering.md`
 - **Tests are TUnit on Microsoft Testing Platform.  Never xUnit.**  `[Test]`, `await value.Should().BeEqualTo(x)` (always awaited), `[Arguments]`; names `Unit_State_Expected`.  No `[Fact]`, `[Theory]`, `Assert.Equal`, or xUnit packages (`references/testing.md`, `references/tunit.md`)
 - Test data comes from **Zeeq Biome**: customize the real entity with `Action<T>`, never `*Prototype` classes.  Handler tests use hand-written fakes; store tests use the real database, never a mocked `DbContext` (`references/zeeq-biome.md`)
@@ -53,11 +54,11 @@ If the repository is missing foundational pieces (Mise, the Aspire host, `src/ba
 
 | When you are | Read |
 |---|---|
-| adding a slice or deciding where code goes | `references/feature-slices.md` |
+| adding a slice (including the contract-first variant with stub handlers) or deciding where code goes | `references/feature-slices.md` |
 | wiring: `Program.cs` and `Setup/`, service lifetimes, adding a concern or a slice's services, startup work, a build that fails in OpenAPI generation mode | `references/composition-root.md` |
 | writing endpoints, handlers, contracts, error results | `references/endpoints.md` |
 | securing routes (groups, guards, roles, anonymous routes, the authentication seam) | `references/route-security.md` |
-| writing summaries and descriptions, changing the API the front-end calls, Scalar (`/scalar`) and its options, a missing or stale OpenAPI document | `references/openapi-contract.md` |
+| writing summaries and descriptions, changing the API the front-end calls, Scalar (`/scalar`) and its options, a missing or stale OpenAPI document; publishing the contract before the handlers exist (stub operations, `StubOperations`, the release gate) | `references/openapi-contract.md` |
 | serving the built front-end from the runtime (static files, SPA fallback, the `/api` prefix, cache headers, the container image) | `references/spa-hosting.md` |
 | the running version, commit, and build time: stamping them in the build, `BuildInfo`, `/api/health`, logs, the Docker build args | `references/build-info.md` |
 | touching entities, stores, EF configuration, or migrations; tenant-scoped (multi-tenant) keys | `references/data-efcore.md` |
@@ -98,7 +99,7 @@ aspire logs app-backend -n 50 --search "error"
 ## Working Loop
 
 1. Read the relevant reference(s); open the nearest existing slice.
-2. Write or change the handler test first (`<Slice>.Tests`, fake store, data from a Zeeq Biome chain) and watch it fail.
+2. Write or change the handler test first (`<Slice>.Tests`, fake store, data from a Zeeq Biome chain) and watch it fail.  Against a stub it fails on the `Stub` result.
 3. Implement: contracts, handler, endpoint (with `WithName`, `WithSummary`, `WithDescription`), mapping; then the store and migration if data changes.
 4. `csharpier format`, `dotnet build`, run the slice's tests (and `<PROJECT>.Data.Tests` if a store changed, `<PROJECT>.Api.Tests` for the descriptions and route security, `<PROJECT>.Runtime.Tests` for the routes lint).
 5. If the contract changed: confirm the diff in `src/app/src/api/<project>-api.json`, then `mise run generate`.
