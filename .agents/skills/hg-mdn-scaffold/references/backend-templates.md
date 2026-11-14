@@ -17,6 +17,7 @@ src/backend/
   packages/
     <PROJECT>.Config/          AppSettings (strongly typed settings)
     <PROJECT>.Api/             IEndpoint, IEndpointHandler, endpoint discovery + mapping,
+                               Stub (the result of an operation whose handler is not built yet),
                                Security/ (secure-by-default route groups, admin group, route guards),
                                SpaSetup (serves the built front-end from `wwwroot`)
     <PROJECT>.Api.Tests/       lints the OpenAPI document; tests the route groups, guards, and
@@ -27,7 +28,8 @@ src/backend/
     <PROJECT>.Health.Tests/
     <PROJECT>.Identity/        second slice: `GET /me` (who is signed in)
     <PROJECT>.Identity.Tests/
-    <PROJECT>.Runtime.Tests/   lints the real routes: every one secured or listed as anonymous
+    <PROJECT>.Runtime.Tests/   lints the real routes: every one secured or listed as anonymous, every
+                               stub operation listed; tests the OpenAPI setup
   runtime/
     <PROJECT>.Runtime.csproj, Program.cs, appsettings*.json, Properties/launchSettings.json
     Setup/                     one static class per runtime-only concern (settings, OpenAPI + Scalar,
@@ -217,6 +219,54 @@ namespace <PROJECT>.Api;
 /// <param name="Code">Stable machine-readable code, `snake_case` (e.g. `invalid_title`).</param>
 /// <param name="Message">Human-readable description.</param>
 public sealed record ApiError(string Code, string Message);
+```
+
+### `src/backend/packages/<PROJECT>.Api/Stub.cs`
+
+The result of an operation whose contract is final and whose handler is not built yet.  A stub handler returns `Stub` as the **last arm** of its final `Results<...>` (a typed result, never `NotImplementedException`).  At run time it answers 501 `ApiError("not_implemented", ...)`.  It adds a `StubMetadata` marker and **no response metadata**, so the OpenAPI document shows the final responses and never the 501.  `OpenApiSetup` turns the marker into `x-implementation: stub`; `StubLintTests` lists every marked endpoint.  Workflow: `hg-mdn-backend`, `references/openapi-contract.md` ("Contract first: stub operations").
+
+```csharp
+using System.Reflection;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+
+namespace <PROJECT>.Api;
+
+/// <summary>
+/// The last arm of a stub handler's <c>Results&lt;...&gt;</c>: answers 501 with the code
+/// <c>not_implemented</c>.  It adds <see cref="StubMetadata"/> and no response metadata, so the
+/// OpenAPI document shows only the final contract.  Remove the arm when the handler is real.
+/// </summary>
+public sealed class Stub : IResult, IStatusCodeHttpResult, IEndpointMetadataProvider
+{
+    public static Stub Instance { get; } = new();
+
+    private Stub() { }
+
+    public int? StatusCode => StatusCodes.Status501NotImplemented;
+
+    public Task ExecuteAsync(HttpContext httpContext) =>
+        TypedResults
+            .Json(
+                new ApiError("not_implemented", "This operation is not implemented yet."),
+                statusCode: StatusCodes.Status501NotImplemented
+            )
+            .ExecuteAsync(httpContext);
+
+    // `Results<...>` calls this for every arm that implements the interface.  No
+    // `ProducesResponseTypeMetadata` on purpose: the 501 stays out of the contract.
+    public static void PopulateMetadata(MethodInfo method, EndpointBuilder builder) =>
+        builder.Metadata.Add(StubMetadata.Instance);
+}
+
+/// <summary>Marks a stub operation; read by the OpenAPI transformer and the stub lint.</summary>
+public sealed class StubMetadata
+{
+    public static StubMetadata Instance { get; } = new();
+
+    private StubMetadata() { }
+}
 ```
 
 ### `src/backend/packages/<PROJECT>.Api/HttpExceptionHandler.cs`
@@ -2741,15 +2791,79 @@ public sealed class RouteSecurityLintTests
 }
 ```
 
+### `src/backend/packages/<PROJECT>.Runtime.Tests/StubLintTests.cs`
+
+Every operation whose handler returns `Stub` is listed in `StubOperations`, and nothing else is.  A new stub shows up in review; a finished one leaves the list.  The list is **empty in the scaffold** and empty again before a release: the release path fails when the committed document still has an `x-implementation` (`release.md`).  The host setup is the one of `RouteSecurityLintTests.Routes()`.
+
+```csharp
+using <PROJECT>.Api;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace <PROJECT>.Runtime.Tests;
+
+/// <summary>
+/// Stubs are visible and temporary: every operation whose handler returns <see cref="Stub"/> is
+/// listed below, so a new stub shows up in review and a finished one is removed from the list.
+/// Stubs are legal on `main` while a contract waits for its handlers; the release gate fails the
+/// release when the committed OpenAPI document still has one (`hg-mdn-scaffold`,
+/// `references/release.md`).  Nothing is requested and no database is touched.
+/// Run: dotnet run --project src/backend/packages/<PROJECT>.Runtime.Tests --treenode-filter "/*/*/StubLintTests/*"
+/// </summary>
+public sealed class StubLintTests
+{
+    // Operation names (`WithName`) that are stubs on purpose, e.g. ["CreateNote"].  Empty before a
+    // release.
+    private static readonly string[] StubOperations = [];
+
+    // The host of `RouteSecurityLintTests.Routes()`: the real endpoints, mapped and never requested.
+    private static List<Endpoint> Endpoints()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.Add<PROJECT>Authorization();
+        builder.Services.Add<PROJECT>Endpoints();
+
+        var app = builder.Build();
+        app.Map<PROJECT>Endpoints("/api"); // same prefix as `Program.cs`
+
+        return [.. ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)];
+    }
+
+    // Sorted and joined, so a failure prints both sets (a collection assertion reports counts only).
+    private static string Names(IEnumerable<string> operations) =>
+        string.Join(", ", operations.Order(StringComparer.Ordinal));
+
+    [Test]
+    public async Task StubLinter_StubEndpoints_MatchReviewedSet()
+    {
+        // `Results<..., Stub>` forwards `Stub.PopulateMetadata`, which adds `StubMetadata`.
+        var stubs = Endpoints()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<StubMetadata>() is not null)
+            .Select(endpoint =>
+                endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName
+            )
+            .OfType<string>();
+
+        await Names(stubs).Should().BeEqualTo(Names(StubOperations));
+    }
+}
+```
+
 ### `src/backend/packages/<PROJECT>.Runtime.Tests/OpenApiSetupTests.cs`
 
-The document lists every named route under `/api` (a route missing a name or a mapping error shows up here before it reaches the Kubb client), and the document and Scalar are served in Development only.  The host mirrors `Program.cs` for the OpenAPI and endpoint calls and nothing else; no database is touched.
+The document lists every named route under `/api` (a route missing a name or a mapping error shows up here before it reaches the Kubb client), and the document and Scalar are served in Development only.  The host mirrors `Program.cs` for the OpenAPI and endpoint calls and nothing else; no database is touched.  Two tests guard the stub contract (`Stub.cs`): over the real routes, the operations marked `x-implementation: stub` (that exact value) are the endpoints that carry `StubMetadata`, and no marked operation documents a 501 (vacuous while there are no stubs); a probe stub endpoint proves the same checks can fail.
 
 ```csharp
 using System.Net;
 using System.Text.Json;
 using <PROJECT>.Api;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
@@ -2764,6 +2878,10 @@ namespace <PROJECT>.Runtime.Tests;
 /// </summary>
 public sealed class OpenApiSetupTests
 {
+    // Sorted and joined, so a failure prints the names (a collection assertion reports counts only).
+    private static string Names(IEnumerable<string> operations) =>
+        string.Join(", ", operations.Order(StringComparer.Ordinal));
+
     private static async Task<WebApplication> StartAsync(string environment)
     {
         var builder = WebApplication.CreateBuilder(
@@ -2811,6 +2929,75 @@ public sealed class OpenApiSetupTests
         await response.StatusCode.Should().BeEqualTo(HttpStatusCode.OK);
         await mapped.Should().NotBeEmpty();
         await documented.Should().BeEquivalentTo(mapped);
+    }
+
+    [Test]
+    public async Task OpenApiDocument_RealStubs_AreMarkedAndHaveNoNotImplementedResponse()
+    {
+        // Every real stub is marked `"stub"` (the front-end selects on that exact value), and no
+        // marked operation documents a 501: the 501 belongs to the runtime, and a documented one
+        // leaks into the generated types and mocks.  Vacuously true with zero stubs; the probe
+        // test below proves the check can fail.
+        await using var app = await StartAsync("Development");
+
+        var response = await app.GetTestClient().GetAsync("/openapi/v1.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        var marked = document
+            .RootElement.GetProperty("paths")
+            .EnumerateObject()
+            .SelectMany(path => path.Value.EnumerateObject())
+            .Where(operation => operation.Value.ValueKind == JsonValueKind.Object)
+            .Where(operation =>
+                operation.Value.TryGetProperty("x-implementation", out var implementation)
+                && implementation.ValueKind == JsonValueKind.String
+                && implementation.GetString() == "stub"
+            )
+            .Select(operation => operation.Value)
+            .ToList();
+        var stubEndpoints = ((IEndpointRouteBuilder)app)
+            .DataSources.SelectMany(source => source.Endpoints)
+            .Where(endpoint => endpoint.Metadata.GetMetadata<StubMetadata>() is not null)
+            .Select(endpoint =>
+                endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName
+            )
+            .OfType<string>();
+        var leaking = marked
+            .Where(operation => operation.GetProperty("responses").TryGetProperty("501", out _))
+            .Select(operation => operation.GetProperty("operationId").GetString()!);
+
+        await Names(marked.Select(operation => operation.GetProperty("operationId").GetString()!))
+            .Should()
+            .BeEqualTo(Names(stubEndpoints));
+        await Names(leaking).Should().BeEqualTo("");
+    }
+
+    [Test]
+    public async Task OpenApiDocument_StubOperation_HasMarkerAndNoNotImplementedResponse()
+    {
+        // Guards the stub contract: the document shows the final responses only (a 501 would
+        // leak into the generated types) and marks the operation for the front-end's mocks.
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions { EnvironmentName = "Development" }
+        );
+        builder.WebHost.UseTestServer();
+        builder.Services.Add<PROJECT>OpenApi();
+
+        await using var app = builder.Build();
+        app.Map<PROJECT>OpenApi();
+        app.MapPost("/probe", () => (Results<Ok, Stub>)Stub.Instance).WithName("ProbeStub");
+        await app.StartAsync();
+
+        var response = await app.GetTestClient().GetAsync("/openapi/v1.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var operation = document
+            .RootElement.GetProperty("paths")
+            .GetProperty("/probe")
+            .GetProperty("post");
+
+        await operation.GetProperty("x-implementation").GetString().Should().BeEqualTo("stub");
+        await operation.GetProperty("responses").TryGetProperty("501", out _).Should().BeFalse();
+        await operation.GetProperty("responses").TryGetProperty("200", out _).Should().BeTrue();
     }
 
     [Test]
@@ -2977,10 +3164,13 @@ internal static class SettingsSetup
 
 ### `src/backend/runtime/Setup/OpenApiSetup.cs`
 
-The OpenAPI document and the Scalar UI that renders it, in one place.  Both are public and Development-only: `MapOpenApi` and Scalar sit outside the secured route groups, so a deployed environment never serves them (the build still writes the document).  `IsGeneratingDocument` is here because it is an OpenAPI fact: the build-time generator runs this host.  Scalar's options each have a reason in the comments; `hg-mdn-backend`, `references/openapi-contract.md` (Scalar) lists what else exists.
+The OpenAPI document and the Scalar UI that renders it, in one place.  Both are public and Development-only: `MapOpenApi` and Scalar sit outside the secured route groups, so a deployed environment never serves them (the build still writes the document).  `IsGeneratingDocument` is here because it is an OpenAPI fact: the build-time generator runs this host.  Scalar's options each have a reason in the comments; `hg-mdn-backend`, `references/openapi-contract.md` (Scalar) lists what else exists.  The operation transformer writes `x-implementation: stub` on every operation whose endpoint carries `StubMetadata` (`Stub.cs`), so the front-end can mock exactly the stubs; it needs a lambda, because a method group does not convert (CS1503).
 
 ```csharp
 using System.Reflection;
+using System.Text.Json.Nodes;
+using <PROJECT>.Api;
+using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 
 namespace <PROJECT>.Runtime;
@@ -3003,7 +3193,30 @@ internal static class OpenApiSetup
     extension(IServiceCollection services)
     {
         /// <summary>Registers the OpenAPI document generator.</summary>
-        public IServiceCollection Add<PROJECT>OpenApi() => services.AddOpenApi();
+        public IServiceCollection Add<PROJECT>OpenApi() =>
+            services.AddOpenApi(options =>
+                // A lambda: a method group does not convert (CS1503).
+                options.AddOperationTransformer(
+                    (operation, context, _) =>
+                    {
+                        // The front-end reads this extension from the committed document to choose
+                        // which operations to mock (`hg-mdn-frontend`, `references/mocking.md`).
+                        if (
+                            context
+                                .Description.ActionDescriptor.EndpointMetadata.OfType<StubMetadata>()
+                                .Any()
+                        )
+                        {
+                            operation.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                            operation.Extensions["x-implementation"] = new JsonNodeExtension(
+                                JsonValue.Create("stub")
+                            );
+                        }
+
+                        return Task.CompletedTask;
+                    }
+                )
+            );
     }
 
     extension(WebApplication app)

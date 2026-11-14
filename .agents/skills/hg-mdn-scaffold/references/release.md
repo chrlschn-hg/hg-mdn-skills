@@ -9,7 +9,9 @@ push to main   docker-publish.yml -> ghcr.io/<owner>/<repo>:latest and :sha-<com
 Actions -> Release
   plan         build/next-version.sh -> 1.4.0   (from the tags and commits; nothing is committed)
                stops here if the image or tag for 1.4.0 exists
+               stops here if the committed OpenAPI document has a stub operation
   validate     ci.yml: build, tests, lint, image smoke test, at this commit
+               stops here if the OpenAPI document is not committed and current (`git status` on it after the build)
   ship         [approval gate] image :1.4.0, built with VERSION=1.4.0 GIT_SHA=<commit>; deploy
   publish      GitHub Release v1.4.0: creates the tag at the commit, notes from the merged PR titles
 ```
@@ -30,6 +32,7 @@ Actions -> Release
 - The baseline is the last stable `vX.Y.Z` tag reachable from `HEAD`; `-rc.N` tags never move it.  An rc is `X.Y.Z-rc.N` of the version the stable release would get, N counting up, published as a GitHub prerelease.  The stable release after it is `X.Y.Z` (more commits can raise the bump), built from the current tip of main rather than the rc image, so it includes anything merged since: the plan prints the commits since the last rc.
 - An override must be `X.Y.Z` (stable channel) or `X.Y.Z-rc.N` (rc channel), without a `v`, greater than the last release, and not an existing tag.  A tag or image tag is never overwritten.
 - It needs full history and tags (`fetch-depth: 0`) and at least one commit.  Releases run from `main` only; maintenance branches are not covered.  One version for the whole repository.
+- **No stub ships.**  A stub is an operation with a final contract and no handler yet (`hg-mdn-backend`, `references/openapi-contract.md`, "Contract first: stub operations"); the committed OpenAPI document marks it `x-implementation: stub`.  Stubs are legal on `main` and in staging builds, so contract PRs merge early.  The release path is the gate, and it has two parts.  `plan` fails while the committed document has a stub, before anyone is asked to approve.  That check alone trusts the committed copy: a stub handler under a stale, stub-free document would pass it.  So freshness is proved too: `validate` calls `ci.yml`, which rebuilds the document and fails when it is untracked, modified, or staged but uncommitted (`git status` on that one path), before `ship` pushes an image.  The tag-triggered variant has no `ci.yml` call, so it rebuilds the document and runs the same check itself ("Without release automation").  The fix for a failed gate is to build the handler, remove the `Stub` arm and its `StubOperations` entry, and run `mise run openapi`.
 - **The commit subjects are the input.**  A squash merge takes the PR title as the commit message, so a title that is not `type(scope): Subject` silently releases nothing (`pr-title.yml` checks it), and with that default a `BREAKING CHANGE:` footer in the PR description never reaches the commit: mark breaking changes with `!` in the title.  The plan prints the counts and the commits (up to 50) for the approver to check.
 
 ## Files
@@ -371,7 +374,7 @@ echo "$passed passed, $failed failed"
 
 ### `.github/workflows/release.yml`
 
-A manual release.  `dry_run` defaults to true, so a first run only plans and validates.  `validate` calls `ci.yml` (which needs `workflow_call`).  `ship` waits for the `production` environment's reviewers.  `latest` and `sha-<commit>` stay with main: deploy by the exact version tag.  `publish` runs last and starts the notes at the last stable tag, so a stable release lists everything since the previous stable, including what first shipped in an rc.  The image check is best effort: only a successful lookup counts as "exists" (a repository that does not exist yet answers "denied").
+A manual release.  `dry_run` defaults to true, so a first run only plans and validates.  `plan` also fails while the committed OpenAPI document has a stub operation (the policy above).  `validate` calls `ci.yml` (which needs `workflow_call`); its build and `git status` check prove the document is committed and current, so a stub cannot hide behind a stale copy.  `ship` waits for the `production` environment's reviewers.  `latest` and `sha-<commit>` stay with main: deploy by the exact version tag.  `publish` runs last and starts the notes at the last stable tag, so a stable release lists everything since the previous stable, including what first shipped in an rc.  The image check is best effort: only a successful lookup counts as "exists" (a repository that does not exist yet answers "denied").
 
 ```yaml
 # Release: computes the next version from Conventional Commits, validates, ships the image behind
@@ -434,6 +437,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # A stub answers 501 (`<PROJECT>.Api`, `Stub`) and is legal on main, never in a release.  The
+      # committed document is the truth: `ci.yml` fails when it is stale.  `jq` is on the runner.
+      - name: No stub operations
+        run: |
+          doc=src/app/src/api/<project>-api.json
+          if ! jq -e '[.paths[][] | objects | select(."x-implementation")] | length == 0' "$doc" > /dev/null; then
+            echo "::error::The OpenAPI document still has stub operations: build their handlers and remove the Stub arm first"
+            jq -r '.paths | to_entries[] | .key as $path | .value | to_entries[] | select(.value | objects | has("x-implementation")) | "  \(.key | ascii_upcase) \($path) (\(.value.operationId))"' "$doc"
+            exit 1
+          fi
 
       # stdout (version, tag, previous) goes to the step outputs, the plan (Markdown) to the log
       # and the job summary.
@@ -700,6 +714,8 @@ Actions -> Release -> Run workflow: `channel` (stable or rc), `version` (blank, 
 
 - **Check the plan** (job summary) before approving: the last release, the counts, the bump, and the commits.  An under-bump means a subject was not conventional: reject the approval, then fix it or override.
 - **rc, then stable:** run rc until happy, then stable; the stable release is the same `X.Y.Z`.
+- **`plan` fails on "No stub operations":** the log lists each stub (`POST /api/notes (CreateNote)`).  Build the handler, remove the `Stub` arm and the `StubOperations` entry (`StubLintTests`), run `mise run openapi`, and merge; then release again.
+- **`validate` fails on "OpenAPI document is committed and current":** the build wrote a document that differs from the committed one, or the file is new and uncommitted (a contract change nobody committed, or a stub that was switched without `mise run openapi`).  Run `mise run openapi`, commit the document, release again.
 - **Declare 1.0:** `version` = `1.0.0` on a stable run.
 - **`publish` failed** (the image is pushed, the release is not): re-run the failed jobs, or create it by hand: `gh release create vX.Y.Z --target <commit> --generate-notes --notes-start-tag <previous>`.
 - **`ship` failed after the push** (a deploy step): the version is spent, and the plan and `ship` refuse to overwrite its image.  Fix the deploy and deploy that image by its tag, then create the release by hand as above, or release the next version with the `version` input.
@@ -738,3 +754,36 @@ on:
 ```
 
 and in the build step: `build-args: |` with `GIT_SHA=${{ steps.build-info.outputs.commit }}` and `VERSION=${{ steps.build-info.outputs.version }}`.
+
+Keep the stub gate on the tag path, and prove the document is current.  A tag push runs no `ci.yml`, so a check of the committed JSON alone would let a stub handler ship under a stale, stub-free document.  Add these steps to the publish job, before the image build, on tags only (a push to main stays free to build with stubs).  They rebuild the document (Debug builds write it; Release builds skip it), fail unless the file is tracked and unchanged (`git diff --exit-code` would pass for a new, untracked file), then run the stub gate on the result:
+
+```yaml
+      - uses: jdx/mise-action@v5
+        if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: Build the OpenAPI document
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: dotnet build src/backend/runtime/<PROJECT>.Runtime.csproj
+
+      - name: OpenAPI document is committed and current
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # `git diff --exit-code` passes for a new, untracked document.  `git status` fails for an
+          # untracked, modified, or staged-but-uncommitted file.
+          doc=src/app/src/api/<project>-api.json
+          if [[ -n "$(git status --porcelain -- "$doc")" ]]; then
+            echo "::error::The OpenAPI document is not committed and current: run mise run openapi and commit $doc"
+            git --no-pager diff -- "$doc"
+            exit 1
+          fi
+
+      - name: No stub operations
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          doc=src/app/src/api/<project>-api.json
+          if ! jq -e '[.paths[][] | objects | select(."x-implementation")] | length == 0' "$doc" > /dev/null; then
+            echo "::error::The OpenAPI document still has stub operations: build their handlers and remove the Stub arm first"
+            jq -r '.paths | to_entries[] | .key as $path | .value | to_entries[] | select(.value | objects | has("x-implementation")) | "  \(.key | ascii_upcase) \($path) (\(.value.operationId))"' "$doc"
+            exit 1
+          fi
+```

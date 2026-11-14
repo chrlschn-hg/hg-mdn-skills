@@ -14,12 +14,14 @@ Most tests are **fast, in-process, and call code directly**: no host-level tests
 | **Contract lint** | `<PROJECT>.Api.Tests` | the committed OpenAPI document: every operation named, summarized, described; a missing `WithDescription` fails `mise run test` and CI (`openapi-contract.md`) | the JSON file the build writes |
 | **Route-security tests** | `<PROJECT>.Api.Tests` | route groups and guards through an in-memory pipeline: 401, 403, hidden 404, filter order | probe endpoints, header-driven test scheme |
 | **Route-security lint** | `<PROJECT>.Runtime.Tests` | every real route is secured or listed as anonymous | the real endpoint set, never requested |
+| **Stub lint** | `<PROJECT>.Runtime.Tests` | the endpoints whose handlers return `Stub` equal the reviewed `StubOperations` list (empty before a release); `OpenApiSetupTests` proves a stub is marked `x-implementation` and has no 501 (`openapi-contract.md`, "Contract first: stub operations") | the real endpoint set, never requested |
 | **Front-end hosting tests** | `<PROJECT>.Api.Tests` | the runtime serving the built front-end: files, fallback, cache headers, the line to the API (`spa-hosting.md`) | a temporary web root, the in-memory pipeline |
 | **Build-info tests** | `<PROJECT>.Health.Tests` | parsing the version stamp the build leaves in the assembly (`build-info.md`) | strings, no host |
 | **App smoke tests** | `src/app` (Vitest) | the whole front-end mounted with the API mocked | see `hg-mdn-frontend` |
 
 Rules of thumb:
 
+- **The first test of an operation starts red.**  For a stub operation (contract first) the first handler test runs against the stub and fails because the result is `Stub`, not the expected `TypedResults` type.  Implement, then remove the `Stub` arm and the `StubOperations` entry.  A test that passes against a stub proves nothing.
 - A rule or branch in a handler gets a **handler test**.  A query, ordering, filter, or constraint gets a **store integration test**.  Do not test the same thing at both levels.
 - A fake proves the handler's logic; only the database proves the store's behavior.  A fake never stands in for a query you have not tested for real.
 - Prefer many small tests with one clear reason to fail over a few large scenarios.

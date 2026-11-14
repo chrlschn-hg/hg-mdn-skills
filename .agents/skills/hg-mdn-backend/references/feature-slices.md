@@ -37,7 +37,7 @@ src/backend/packages/<PROJECT>.Testing/Biome/
 Conventions:
 
 - One handler class per operation, named `<Verb><Thing>Handler`, in `<Slice>Endpoints.Handler.<Verb><Thing>.cs`.
-- Handlers take a store interface through the primary constructor and return `Results<...>` built with `TypedResults`.
+- Handlers take a store interface through the primary constructor and return `Results<...>` built with `TypedResults`.  A **stub** handler (the contract is published, the behavior is not built) takes nothing and returns `Stub` as the last arm: "Add a slice, contract first".
 - Contracts are `sealed record`s with XML docs on every parameter.
 - Mapping lives in one `internal static class` of extension members; handlers never build contracts by hand.
 - `InternalsVisibleTo` the tests project instead of making internals public.
@@ -55,6 +55,25 @@ Test first: the first test of a slice is a handler test.
 6. In `<PROJECT>.Data`: add the `IEntityTypeConfiguration<T>`, the store implementation, one `AddScoped<I<Thing>Store, <Thing>Store>()` line in `DataSetup`, and a `ProjectReference` to the slice.
 7. Create the migration (`data-efcore.md`), then write the store integration tests against the database fixture.
 8. `dotnet build`, then `mise run generate` (`openapi-contract.md`).
+
+## Add a slice, contract first
+
+Use this when the front-end builds in parallel: the contract ships first, the behavior follows.  Workflow, rules, gates, and the worked `CreateNote` stub: `openapi-contract.md` ("Contract first: stub operations").  The front-end half: `hg-mdn-frontend`, `references/mocking.md`.  Two kinds of change:
+
+**The contract PR** (stubs only; no domain type, no store, no `Data` change):
+
+1. Steps 1 and 2 of "Add a slice": the slice and `.Tests` projects, the solution entries, the runtime `ProjectReference`.
+2. Write the contract records (XML docs, limits), the endpoints with the final `WithName`, `WithSummary`, `WithDescription`, every status and every domain error code, and the final security (`route-security.md`).
+3. Write one stub handler per operation: no constructor dependencies, `Stub` as the last arm of the final `Results<...>`.
+4. List each operation in `StubOperations` (`StubLintTests` in `<PROJECT>.Runtime.Tests`).
+5. `dotnet build`, which writes the document; commit it.  Run the description lint, the route-security lint, and the stub lint.
+
+**One change per operation, the switch** (steps 3 to 8 of "Add a slice", for that operation only):
+
+1. The handler test first.  It fails against the stub.
+2. Domain type, store interface, handler, mapping, then the `Data` side (store, registration, migration, store tests).
+3. Remove the `Stub` arm and the `StubOperations` entry.
+4. `mise run openapi`: the diff removes `x-implementation` and nothing else.  Any other change is a contract change; tell the front-end owner.
 
 ## The Notes slice
 

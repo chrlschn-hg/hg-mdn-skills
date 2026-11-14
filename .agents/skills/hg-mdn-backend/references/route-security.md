@@ -282,4 +282,5 @@ Assert the **status code** and, for ordering, a side effect (a response header) 
 4. A role, or a state check?  On the route (mutations), cheap guard first.
 5. Public?  `AllowAnonymous()` with a `// NOTE:` saying why, **and** add it to the list in `RouteSecurityLintTests`.
 6. Name the role in `WithDescription` when it is not the default (signed in).
-7. Add pipeline-test cases for any new guard or rule; the lint runs for every route automatically.
+7. A stub operation (contract first) declares its **final** security now, by these same steps: a stub is an ordinary route whose handler returns `Stub`, and it answers 501 behind the group's rules, so a signed-out caller gets 401 before any 501.  An open stub still needs its `// NOTE:` and its `AnonymousRoutes` line.  The lint reads authorization metadata only; the stub marker does not affect it (`openapi-contract.md`, "Contract first: stub operations").
+8. Add pipeline-test cases for any new guard or rule; the lint runs for every route automatically.
