@@ -1,5 +1,7 @@
 # Front-end Testing
 
+Use MSW for tests that exercise the generated client and Colada.  Keep `vi.mock` for focused boundaries.  The scaffold setup rejects unhandled requests, including swallowed rejections.  Read [mocking.md](mocking.md) for setup, deterministic data, and scenarios.
+
 [Vitest](https://vitest.dev) with `happy-dom` and `@vue/test-utils` for unit, component, and wiring tests; the **Playwright MCP** for looking at the real running UI.  (Backend tests are TUnit: see the `hg-mdn-backend` skill.)  This file owns the test setup, the API mock boundary, page tests, fake timers, and browser verification; forms, overlays, routing, and the other topic references show their own tests.
 
 ## Setup
@@ -9,6 +11,7 @@
 ```ts
 test: {
   environment: "happy-dom",
+  environmentOptions: { happyDOM: { url: "http://localhost:3000" } },
   include: ["src/**/*.test.ts"],
   setupFiles: ["./src/test/setup.ts"],
   restoreMocks: true,
@@ -27,23 +30,32 @@ Four small files every test benefits from (they ship in the baseline):
 `src/app/src/test/setup.ts`
 
 ```ts
-import { afterEach, beforeEach, vi } from "vitest";
+import { fakerEN } from "@faker-js/faker";
+import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { server, takeUnhandled } from "@/test/server";
 
-/**
- * Tests never reach a real backend.  Every API function a test touches must be mocked (the
- * generated clients, at the module boundary); anything that slips through would otherwise try
- * `localhost:<port>` and fail with a confusing `ECONNREFUSED`.  This turns it into a clear error.
- * Tests that exercise the real client stub `fetch` themselves (`vi.stubGlobal`), which wins.
- */
-beforeEach(() => {
-  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
-    throw new Error(
-      `Unexpected network request in a test: ${String(input)}. Mock the API function.`,
-    );
-  });
+// An unmatched request fails the test with MSW's message (method + URL + what to add), so a
+// forgotten handler is loud.  MSW patches `fetch` itself: never stub it in this setup,
+// because a stub replaces MSW's patch.  MSW 3 names the option `onUnhandledFrame`
+// (`onUnhandledRequest` of MSW 2 is silently ignored).
+beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
+afterEach(() => {
+  server.resetHandlers();
+  // The rejected `fetch` can be swallowed by app code (a query's error state); this cannot.
+  const unhandled = takeUnhandled();
+  if (unhandled.length > 0) {
+    throw new Error(`Request(s) without a handler: ${unhandled.join(", ")}`);
+  }
 });
+afterAll(() => server.close());
 
-afterEach(() => vi.unstubAllGlobals());
+// The generated factories use the `fakerEN` instance, not the default `faker` export.  Kubb seeds it
+// once at import; reset it per test so a test's data does not depend on the tests before it, and
+// pin the reference date because `faker.date.anytime()` is relative to "now".
+beforeEach(() => {
+  fakerEN.seed(1);
+  fakerEN.setDefaultRefDate("2026-06-01T00:00:00Z");
+});
 ```
 
 `src/app/src/test/mount.ts`
@@ -130,24 +142,25 @@ export function installTestPinia() {
 </template>
 ```
 
-- **`setup.ts` is a network guard.**  Any `fetch` a test did not stub throws `Unexpected network request in a test: <url>. Mock the API function.` instead of failing with a confusing `ECONNREFUSED`.  Tests that exercise the real client stub `fetch` themselves with `vi.stubGlobal`, which wins.
+- **`setup.ts` is a network guard.**  MSW reports unhandled requests even when the caller catches the rejection.
 - **`mountWithUi`** is `mount` plus the Nuxt UI plugin, a fresh Pinia, and its query cache (`PiniaColada`): what every component needs.
 - **`runInSetup`** runs a query, a mutation, or a composable that uses them inside a mounted component: `useQuery` and `useMutation` need a component's injections.  Each call gets a fresh Pinia and cache; unmount the wrapper after the test.
 - **`installTestPinia`** gives a test that uses a store outside a component a fresh Pinia and cache, attached to an app.  **Never `createTestingPinia`**: it stubs the actions the query cache relies on.
 - **`AppHarness`** is a `UApp` host for anything that teleports or needs `UApp`: overlays opened through `useOverlay` (confirmations), toasts, `USlideover`/`UModal`/`UPopover`.  Mount the component in its default slot, with `attachTo: document.body`; the content is then in `document.body`, not in `wrapper`.
-- Principle: **mock only the API (at the generated-client module); everything else is real.**
+- Principle: **use MSW for client integration and `vi.mock` for focused boundaries; everything else is real.**
 
 ## What to test
 
 | Subject | How | Example |
 |---|---|---|
-| **Queries and mutations** | mock the generated clients; run in `runInSetup`; assert `data`, `error`, flags, and the `SaveResult` | `queries/notes.test.ts` |
+| **Queries and mutations** | use MSW with the real generated clients; run in `runInSetup`; assert `data`, `error`, flags, and the `SaveResult` | `queries/notes.msw.test.ts` |
+| **Query unit boundary** | mock the generated client for a focused test | `queries/notes.test.ts` |
 | **Stores** | `installTestPinia()` in `beforeEach`; arrange mocks before the first use of a store that wraps a query | `stores/session-store.test.ts` |
 | **Composables** | call them directly with plain refs, or in `runInSetup` when they use a query; fake timers for time | `composables/useAutoRefresh.test.ts` |
 | **Utils** | plain input and output | any `utils/*.test.ts` |
 | **Components with logic** | `mountWithUi`; props, events, slots | `components/SearchBox.test.ts`, `NoteForm.test.ts` (`forms.md`) |
 | **Overlays** | `AppHarness` + `attachTo: document.body` (`overlays.md`, "Testing overlays") | `components/NoteFormSlideover.test.ts` |
-| **API error mapping, client config** | real generated client, stub `fetch` | `api/errors.test.ts` |
+| **API error mapping, client config** | focused unit tests may stub `fetch` and restore it; use MSW for HTTP integration | `api/errors.test.ts` |
 | **Router guards** | memory router and `router.push` (`routing.md`) | `router/guards.test.ts` |
 | **Pages and whole-app wiring** | mount `App` with router, Nuxt UI, Pinia, `PiniaColada`; API mocked | `App.test.ts`, `pages/notes/index.test.ts` |
 
@@ -157,7 +170,7 @@ Every page covers: the list, the **empty** state, the **error** state, the main 
 
 ## Mock at the generated-client boundary
 
-Only `src/queries` calls the generated functions, so that is the one seam to mock.  Use `vi.hoisted` so the mock exists before the module under test is imported:
+For focused unit tests, mock the generated client boundary.  Use `vi.hoisted` so the mock exists before the module under test is imported:
 
 `src/app/src/queries/notes.test.ts`
 
@@ -452,7 +465,7 @@ describe("useDeleteNote", () => {
 - Assert what the caller sees (`data`, `error`, `status`, `isPending`, the `SaveResult`), not that a function was called with particular arguments, unless the arguments are the point (a request body, a filter).
 - Test the **concurrency** the key handles: the newest key wins over a slow older response, one key shares one request, a write refetches the list, a failed optimistic change rolls back even when the refetch fails too (`data-loading.md`).
 - A store that wraps a query (`session-store.test.ts`) calls `installTestPinia()` in `beforeEach` and creates the store after it arranges the mock.
-- A test that needs HTTP behavior stubs `fetch` (`api-client.md`); the guard in `setup.ts` makes any other network call loud.
+- A test that needs HTTP behavior uses MSW handlers (`mocking.md`).
 
 ## Page tests: through the whole app
 
@@ -534,10 +547,10 @@ The baseline smoke test (`App.test.ts`) is the same shape for the home page.  It
 ## Debugging a failing test or a UI problem
 
 1. Run the one file: `npx vitest run <path> -t "<name>"`.
-2. `Unexpected network request in a test: <url>`: mock that API function (or stub `fetch` if the real client is the subject).
+2. `Request(s) without a handler`: add an MSW handler or mock the client boundary.
 3. `Cannot find ... in document`: the content teleported; query `document.body`, mount with `attachTo`.
 4. Assertion before the data arrived: wrap in `vi.waitFor` or `await flushPromises()`.  The mock returns `undefined` or the wrong value: the query fired when it was created, before the test arranged the mock.
-5. State leaking between tests: fresh Pinia and query cache per test (`runInSetup`, `mountWithUi`, `installTestPinia`; never `createTestingPinia`), unmount and clear the body, `afterEach` restores stubs (`restoreMocks`/`unstubAllGlobals` are on).
+5. State leaking between tests: fresh Pinia and query cache per test (`runInSetup`, `mountWithUi`, `installTestPinia`; never `createTestingPinia`), unmount and clear the body, restore global stubs in `afterEach` with `vi.unstubAllGlobals()`.
 6. A confirmation or toast never appears: the component needs `UApp` (`AppHarness`).
 7. In the browser, wrong data: is the right function called with the right arguments (a test with the mock asserting the call tells you), and does the query key hold every input?  Wrong render: check the four-state priority (`ui-states.md`) and which query flag (`isPending`, `isLoading`, `isPlaceholderData`) drives it.
 8. A route or component is "not found" by the editor: `npm run build` once regenerates `typed-router.d.ts`, `components.d.ts`, and `auto-imports.d.ts`.
@@ -552,3 +565,57 @@ Tests prove logic; they do not prove the UI looks and works right.  For any UI w
 4. Check **dark mode and a narrow viewport**; read the browser console and network panel for errors and unexpected requests (none should go to `api.iconify.design`).
 5. Read the **page snapshot** (the accessibility tree): every control should have a sensible role and name (`accessibility-responsive.md`).
 6. Fix and re-check, then finish with the hand-off checklist in `recipes.md`.
+
+## Test HTTP behavior with MSW
+
+This test uses the real generated client and Colada.  See [mocking.md](mocking.md) for the server and fixture lifecycle.
+
+`src/app/src/queries/session.msw.test.ts`
+
+```ts
+import { useQuery } from "@pinia/colada";
+import { HttpResponse } from "msw/http";
+import { expect, it, vi } from "vitest";
+import { getMeHandler } from "@/api/generated/handlers/getMeHandler";
+import { server } from "@/test/server";
+import { runInSetup } from "@/test/mount";
+import { sessionQuery } from "./session";
+
+it("treats a 401 as a signed-out session", async () => {
+  server.use(getMeHandler(() => new HttpResponse(null, { status: 401 })));
+  const { result, wrapper } = runInSetup(() => useQuery(sessionQuery));
+  await vi.waitFor(() => expect(result.status.value).toBe("success"));
+  expect(result.data.value).toBeNull();
+  wrapper.unmount();
+});
+```
+
+## Notes query through MSW
+
+The handler observes the request from the real generated client.  `runInSetup` installs a real Pinia and query cache.  See [mocking.md](mocking.md).
+
+`src/app/src/queries/notes.msw.test.ts (example)`
+
+```ts
+import { useQuery } from "@pinia/colada";
+import { HttpResponse } from "msw/http";
+import { expect, it, vi } from "vitest";
+import { listNotesHandler } from "@/api/generated/handlers/listNotesHandler";
+import { runInSetup } from "@/test/mount";
+import { server } from "@/test/server";
+import { notesQuery } from "./notes";
+
+it("loads notes through the generated client", async () => {
+  const requests: string[] = [];
+  server.use(
+    listNotesHandler(({ request }) => {
+      requests.push(new URL(request.url).searchParams.get("notebookId") ?? "");
+      return HttpResponse.json({ items: [] });
+    }),
+  );
+  const { result, wrapper } = runInSetup(() => useQuery(notesQuery("notebook-1")));
+  await vi.waitFor(() => expect(result.data.value).toEqual({ items: [] }));
+  expect(requests).toEqual(["notebook-1"]);
+  wrapper.unmount();
+});
+```

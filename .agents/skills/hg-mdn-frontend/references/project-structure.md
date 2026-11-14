@@ -1,5 +1,7 @@
 # Project Structure and Tooling
 
+Keep handwritten mock selection, scenarios, and state in `src/mocks/`.  Kubb owns `src/api/generated/{handlers,mocks}`.  See [mocking.md](mocking.md).
+
 A Vite SPA, **not Nuxt**: Nuxt UI is a plain Vue library through its Vite plugin.  The stack is in `SKILL.md`; this file owns where files go, naming, and the code conventions.
 
 ## Layout

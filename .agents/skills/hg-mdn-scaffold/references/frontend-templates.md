@@ -71,7 +71,10 @@ instead of adding the plugins separately.
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@kubb/plugin-fetch": "^5.5.6",
+    "@faker-js/faker": "10.6.0",
+    "@kubb/plugin-faker": "5.4.3",
+    "@kubb/plugin-fetch": "5.13.2",
+    "@kubb/plugin-msw": "6.2.3",
     "@kubb/plugin-ts": "^5.0.5",
     "@kubb/plugin-zod": "^5.4.3",
     "@types/node": "^26.6.4",
@@ -79,7 +82,8 @@ instead of adding the plugins separately.
     "@vue/test-utils": "^2.5.1",
     "@vue/tsconfig": "^0.9.1",
     "happy-dom": "^20.14.6",
-    "kubb": "^5.5.6",
+    "kubb": "5.20.1",
+    "msw": "3.0.5",
     "oxfmt": "^0.72.0",
     "oxlint": "^1.87.0",
     "typescript": "~6.0.3",
@@ -88,6 +92,11 @@ instead of adding the plugins separately.
     "vite": "^8.3.4",
     "vitest": "^5.0.3",
     "vue-tsc": "^3.3.12"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
 ```
@@ -98,6 +107,7 @@ instead of adding the plugins separately.
 
 ```ts
 import path from "node:path";
+import { rmSync } from "node:fs";
 import ui from "@nuxt/ui/vite";
 import vue from "@vitejs/plugin-vue";
 import { VueUseComponentsResolver } from "unplugin-vue-components/resolvers";
@@ -161,11 +171,23 @@ const icons = {
 // `launchSettings.json`, for running Vite alone.
 const apiTarget = process.env["services__app-backend__http__0"] ?? "http://localhost:<BACKEND_API_PORT>";
 
+let workerPath = "";
+
 // https://vite.dev/config/
 export default defineConfig({
   // Hosted under a sub-path (for example `/web/`)?  Build with `VITE_BASE=/web/ npm run build`.
   base: process.env.VITE_BASE ?? "/",
   plugins: [
+    {
+      name: "omit-mock-worker",
+      apply: "build",
+      configResolved(config) {
+        workerPath = path.resolve(config.root, config.build.outDir, "mockServiceWorker.js");
+      },
+      closeBundle() {
+        rmSync(workerPath, { force: true });
+      },
+    },
     // Must come before `vue()` so route blocks in SFCs are handled first.
     VueRouter(),
     vue(),
@@ -204,6 +226,7 @@ export default defineConfig({
   server: { proxy: { "/api": apiTarget } },
   test: {
     environment: "happy-dom",
+    environmentOptions: { happyDOM: { url: "http://localhost:3000" } },
     include: ["src/**/*.test.ts"],
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
@@ -279,7 +302,7 @@ export default defineConfig({
 
 ### `src/app/src/env.d.ts`
 
-Types `import.meta.env` (`VITE_API_BASE_URL` only, and only needed when the front-end is hosted apart from the API; `VITE_BASE` is read in `vite.config.ts`).  Only `VITE_`-prefixed variables reach the browser; they are public.
+Types `import.meta.env` for the optional API origin and mock flag.  `VITE_BASE` is read in `vite.config.ts`.  Only `VITE_`-prefixed variables reach the browser; they are public.
 
 ```ts
 /// <reference types="vite/client" />
@@ -289,6 +312,7 @@ Types `import.meta.env` (`VITE_API_BASE_URL` only, and only needed when the fron
 interface ImportMetaEnv {
   /** Backend origin for the generated client; unset (the default) means same-origin `/api`. */
   readonly VITE_API_BASE_URL?: string;
+  readonly VITE_MOCK_API?: string;
 }
 
 interface ImportMeta {
@@ -363,7 +387,14 @@ Lints `.ts` and `.vue`.  `oxlint` prints nothing and exits 0 when clean; exits 1
 ```json
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["dist", "src/api/generated", "*.d.ts", "src/api/*.json", "**/*.md"]
+  "ignorePatterns": [
+    "dist",
+    "src/api/generated",
+    "*.d.ts",
+    "src/api/*.json",
+    "**/*.md",
+    "public/mockServiceWorker.js"
+  ]
 }
 ```
 
@@ -377,6 +408,8 @@ There is no `baseURL`: the OpenAPI paths already start with `/api`, so the gener
 import { defineConfig } from "kubb";
 import { pluginTs } from "@kubb/plugin-ts";
 import { pluginFetch } from "@kubb/plugin-fetch";
+import { pluginFaker } from "@kubb/plugin-faker";
+import { pluginMsw } from "@kubb/plugin-msw";
 import { pluginZod } from "@kubb/plugin-zod";
 
 // Reads the OpenAPI document that the backend build writes (see `OpenApiDocumentsDirectory` in
@@ -411,6 +444,27 @@ export default defineConfig({
         mode: "directory",
       },
     }),
+    pluginFaker({
+      output: { path: "./mocks", mode: "directory" },
+      typeMode: "schema",
+      seed: [1],
+      printer: {
+        nodes: {
+          string(node) {
+            if (node.pattern || node.format || node.content || node.min !== undefined) {
+              return this.base(node);
+            }
+            const words = "faker.lorem.words({ min: 2, max: 5 })";
+            return node.max === undefined ? words : `${words}.slice(0, ${node.max})`;
+          },
+        },
+      },
+    }),
+    pluginMsw({
+      output: { path: "./handlers", mode: "directory" },
+      parser: "faker",
+      handlers: true,
+    }),
   ],
 });
 ```
@@ -421,12 +475,14 @@ export default defineConfig({
 Generated API files live here.
 
   <project>-api.json   OpenAPI document; written by the backend build (src/backend/runtime); COMMITTED
-  generated/           TypeScript types + fetch clients; written by Kubb (`npm run generate`); git-ignored
+  generated/           TypeScript types, clients, schemas, handlers, and fakes; written by Kubb (`npm run generate`); git-ignored
 
 Do not edit by hand.
 Flow: C# endpoints -> OpenAPI document (`dotnet build`) -> Kubb -> generated/.  Aspire runs Kubb in watch mode.
 After a fresh clone, run `npm run generate` (or `mise run generate`) before building the front-end.
 ```
+
+Run `npx msw init public/ --save` after `npm install`, then run `npx oxfmt package.json`.  Commit `public/mockServiceWorker.js`; do not edit it.  See `hg-mdn-frontend/references/mocking.md`.
 
 ## Application
 
@@ -444,6 +500,11 @@ import { routes } from "vue-router/auto-routes";
 import { configureApiClient } from "@/api/setup";
 import { installGuards, redirectToLoginOnUnauthorized } from "@/router/guards";
 import App from "./App.vue";
+
+if (import.meta.env.DEV && import.meta.env.VITE_MOCK_API) {
+  const { worker } = await import("@/mocks/browser");
+  await worker.start({ onUnhandledFrame: "bypass" });
+}
 
 configureApiClient();
 
@@ -1388,22 +1449,24 @@ declare module "@pinia/colada" {
 
 ### `src/app/src/api/errors.test.ts`
 
-Runs the real generated client with only `fetch` stubbed.  `setConfig` merges, so the cleanup names `baseURL` explicitly; otherwise a test that sets it leaks into the next.
+Use MSW for error responses.  Focused configuration unit tests stub `fetch` only within each test and restore it with `vi.unstubAllGlobals()`.  The stub bypasses MSW while active.  Use MSW for HTTP integration.  `setConfig` merges, so cleanup names `baseURL` explicitly.
 
 ```ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { client } from "@/api/generated/.kubb/client";
+import { HttpResponse } from "msw/http";
+import { getHealthHandler } from "@/api/generated/handlers/getHealthHandler";
+import { server } from "@/test/server";
 import { getHealth } from "@/api/generated/clients/getHealth";
 import { errorMessage, errorText, toApiError } from "./errors";
 import { configureApiClient } from "./setup";
 
-/** Stubs only `fetch`: everything above it is the real generated client. */
+/** Exercise the generated client and MSW HTTP layer. */
 function respondWith(status: number, body: unknown) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(JSON.stringify(body), {
+  server.use(
+    getHealthHandler(
+      () =>
+        new HttpResponse(JSON.stringify(body), {
           status,
           headers: { "content-type": "application/json" },
         }),
@@ -1721,26 +1784,35 @@ describe("BuildInfoLabel", () => {
 
 ### `src/app/src/test/setup.ts`
 
-Fails any real HTTP request with a clear message.  Without it an unmocked API call tries `localhost:<port>` and fails with `ECONNREFUSED`.
+MSW fails unhandled requests, including rejections that application code catches.  See `hg-mdn-frontend/references/mocking.md`.
 
 ```ts
-import { afterEach, beforeEach, vi } from "vitest";
+import { fakerEN } from "@faker-js/faker";
+import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { server, takeUnhandled } from "@/test/server";
 
-/**
- * Tests never reach a real backend.  Every API function a test touches must be mocked (the
- * generated clients, at the module boundary); anything that slips through would otherwise try
- * `localhost:<port>` and fail with a confusing `ECONNREFUSED`.  This turns it into a clear error.
- * Tests that exercise the real client stub `fetch` themselves (`vi.stubGlobal`), which wins.
- */
-beforeEach(() => {
-  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
-    throw new Error(
-      `Unexpected network request in a test: ${String(input)}. Mock the API function.`,
-    );
-  });
+// An unmatched request fails the test with MSW's message (method + URL + what to add), so a
+// forgotten handler is loud.  MSW patches `fetch` itself: never stub it in this setup,
+// because a stub replaces MSW's patch.  MSW 3 names the option `onUnhandledFrame`
+// (`onUnhandledRequest` of MSW 2 is silently ignored).
+beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
+afterEach(() => {
+  server.resetHandlers();
+  // The rejected `fetch` can be swallowed by app code (a query's error state); this cannot.
+  const unhandled = takeUnhandled();
+  if (unhandled.length > 0) {
+    throw new Error(`Request(s) without a handler: ${unhandled.join(", ")}`);
+  }
 });
+afterAll(() => server.close());
 
-afterEach(() => vi.unstubAllGlobals());
+// The generated factories use the `fakerEN` instance, not the default `faker` export.  Kubb seeds it
+// once at import; reset it per test so a test's data does not depend on the tests before it, and
+// pin the reference date because `faker.date.anytime()` is relative to "now".
+beforeEach(() => {
+  fakerEN.seed(1);
+  fakerEN.setDefaultRefDate("2026-06-01T00:00:00Z");
+});
 ```
 
 ### `src/app/src/test/mount.ts`
@@ -1836,3 +1908,201 @@ Hosts overlays: components that open a confirmation (`useOverlay`) must be mount
 ## Directories to create (empty)
 
 Create `src/composables`, `src/layouts`, and `src/utils` when the first file needs them (git does not track empty directories; the baseline has none).  Copy `public/favicon.svg` (any SVG).  Conventions: the `hg-mdn-frontend` skill.
+
+### `src/app/src/mocks/select.ts`
+
+```ts
+import type { HttpHandler } from "msw";
+import spec from "@/api/<project>-api.json";
+
+type Operation = { operationId?: string; "x-implementation"?: string };
+type Paths = Record<string, Record<string, Operation>>;
+
+// Kubb can rename path parameters, so match the method and path shape only.
+const routeShape = (route: string) => route.replaceAll(/\{[^/{}]+\}|:\w+/g, ":");
+
+export function createSelector(paths: Paths) {
+  const operations = Object.entries(paths).flatMap(([path, item]) =>
+    Object.entries(item).flatMap(([method, operation]) =>
+      operation.operationId
+        ? [
+            {
+              route: routeShape(`${method.toUpperCase()} ${path}`),
+              id: operation.operationId,
+              stub: operation["x-implementation"] === "stub",
+            },
+          ]
+        : [],
+    ),
+  );
+  const byRoute = new Map(operations.map((operation) => [operation.route, operation.id]));
+  const operationIdOf = (handler: HttpHandler) => byRoute.get(routeShape(handler.info.header));
+  const stubOperations = operations
+    .filter((operation) => operation.stub)
+    .map((operation) => operation.id);
+
+  function selectHandlers(handlers: readonly HttpHandler[], selected: readonly string[]) {
+    const known = new Set(operations.map((operation) => operation.id));
+    const unknown = selected.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new Error(`Unknown operationId in the mock list: ${unknown.join(", ")}`);
+    }
+    const matches = handlers.filter((handler) => selected.includes(operationIdOf(handler) ?? ""));
+    const found = new Set(matches.map(operationIdOf));
+    const missing = selected.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`No handler for mock operationId: ${missing.join(", ")}`);
+    }
+    return matches;
+  }
+  return { operationIdOf, stubOperations, selectHandlers };
+}
+
+export const { operationIdOf, stubOperations, selectHandlers } = createSelector(
+  spec.paths as Paths,
+);
+```
+
+### `src/app/src/mocks/handlers.ts`
+
+```ts
+import { handlers as generated } from "@/api/generated/handlers/handlers";
+import { selectHandlers, stubOperations } from "./select";
+
+export const handlers =
+  import.meta.env.VITE_MOCK_API === "all" ? generated : selectHandlers(generated, stubOperations);
+```
+
+### `src/app/src/mocks/browser.ts`
+
+```ts
+import { setupWorker } from "msw/browser";
+import { handlers } from "./handlers";
+
+export const worker = setupWorker(...handlers);
+```
+
+### `src/app/src/mocks/select.test.ts`
+
+```ts
+import { http, HttpResponse } from "msw/http";
+import { describe, expect, it } from "vitest";
+import { handlers } from "@/api/generated/handlers/handlers";
+import { createSelector, operationIdOf, selectHandlers } from "./select";
+
+describe("selectHandlers", () => {
+  it("maps the contract route to its operation", () => {
+    expect(selectHandlers(handlers, ["GetHealth"]).map(operationIdOf)).toEqual(["GetHealth"]);
+  });
+  it("rejects a misspelled operation", () => {
+    expect(() => selectHandlers(handlers, ["GetHealt"])).toThrow("Unknown operationId");
+  });
+  it("matches a renamed hyphenated parameter", () => {
+    const selector = createSelector({
+      "/api/notes/{note-id}": { delete: { operationId: "deleteNote", "x-implementation": "stub" } },
+    });
+    const handler = http.delete(
+      "/api/notes/:noteId",
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    expect(selector.selectHandlers([handler], selector.stubOperations)).toEqual([handler]);
+  });
+  it("preserves a literal suffix after a parameter", () => {
+    const selector = createSelector({
+      "/api/files/{id}.json": { get: { operationId: "getFile", "x-implementation": "stub" } },
+    });
+    const handler = http.get("/api/files/:id.json", () => HttpResponse.json({}));
+    expect(selector.selectHandlers([handler], selector.stubOperations)).toEqual([handler]);
+  });
+  it("matches parameters in the middle and at the end", () => {
+    const selector = createSelector({
+      "/api/{a}/notes/{b}": { get: { operationId: "getNote", "x-implementation": "stub" } },
+    });
+    const handler = http.get("/api/:first/notes/:second", () => HttpResponse.json({}));
+    expect(selector.selectHandlers([handler], selector.stubOperations)).toEqual([handler]);
+  });
+  it("rejects a stub without a matching handler", () => {
+    const selector = createSelector({
+      "/api/notes/{note-id}": { delete: { operationId: "deleteNote", "x-implementation": "stub" } },
+    });
+    expect(() => selector.selectHandlers([], selector.stubOperations)).toThrow("No handler");
+  });
+});
+```
+
+### `src/app/src/test/server.ts`
+
+```ts
+import { setupServer } from "msw/node";
+import { handlers } from "@/api/generated/handlers/handlers";
+
+/** The MSW server every test shares: the generated handlers answer with Faker data. */
+export const server = setupServer(...handlers);
+
+const unhandled: string[] = [];
+server.events.on("request:unhandled", ({ request }) => {
+  unhandled.push(`${request.method} ${request.url}`);
+});
+
+/**
+ * Requests that had no handler since the last call.  `setup.ts` fails the test when any are left
+ * after it ends (app code may swallow the rejected `fetch`, so the rejection alone is not enough).
+ * A test that expects one calls this to take it.
+ */
+export const takeUnhandled = () => unhandled.splice(0);
+```
+
+### `src/app/src/test/deferred.ts`
+
+```ts
+/** A promise settled from outside: holds an MSW response until the test has looked at the state. */
+export function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
+```
+
+### `src/app/src/queries/health.msw.test.ts`
+
+```ts
+import { useQuery } from "@pinia/colada";
+import { expect, it, vi } from "vitest";
+import { getHealthHandler } from "@/api/generated/handlers/getHealthHandler";
+import { server } from "@/test/server";
+import { runInSetup } from "@/test/mount";
+import { healthQuery } from "./health";
+
+it("loads health through the generated client", async () => {
+  server.use(
+    getHealthHandler({
+      status: "Healthy",
+      checkedAtUtc: "2026-01-01T00:00:00Z",
+      build: { version: "1", commit: null, builtAtUtc: null },
+    }),
+  );
+  const { result, wrapper } = runInSetup(() => useQuery(healthQuery));
+  await vi.waitFor(() => expect(result.data.value?.status).toBe("Healthy"));
+  wrapper.unmount();
+});
+```
+
+### `src/app/src/queries/session.msw.test.ts`
+
+```ts
+import { useQuery } from "@pinia/colada";
+import { HttpResponse } from "msw/http";
+import { expect, it, vi } from "vitest";
+import { getMeHandler } from "@/api/generated/handlers/getMeHandler";
+import { server } from "@/test/server";
+import { runInSetup } from "@/test/mount";
+import { sessionQuery } from "./session";
+
+it("treats a 401 as a signed-out session", async () => {
+  server.use(getMeHandler(() => new HttpResponse(null, { status: 401 })));
+  const { result, wrapper } = runInSetup(() => useQuery(sessionQuery));
+  await vi.waitFor(() => expect(result.status.value).toBe("success"));
+  expect(result.data.value).toBeNull();
+  wrapper.unmount();
+});
+```

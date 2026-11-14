@@ -1,5 +1,7 @@
 # Recipes
 
+For an API operation, review the committed contract first.  Generate clients and mocks, then build and test the screen while the backend implements the handler.  See [mocking.md](mocking.md).
+
 Checklists in order of work.  Each names the reference for detail and, where a Notes example exists, the listing to copy (reference examples, not files in a new project: `project-structure.md`).  Finish every recipe with the **Hand-off checklist** at the end.
 
 ## Add a page that lists things
@@ -62,6 +64,12 @@ A sketch; no tested example in the references backs it.
 2. If it belongs to a field, add it to the form's `fieldForCode`; otherwise the page toasts `result.message`.
 3. If the UI must behave differently for it (redirect, disable a button), switch on `result.code` in the page: never on the message text.
 4. Add a test of the mutation composable: the API mock rejects with a `ResponseError` and the write resolves to `{ ok: false, code }`; add a form/page test for the visible effect.
+
+## Add an API operation
+
+1. Review the committed OpenAPI document with the backend owner.  The stub declares the final fields, errors, and security.
+2. Run `mise run generate`.  Build queries, screens, and MSW tests against the generated contract (`mocking.md`).
+3. When the backend removes the stub marker, regenerate and test the screen against the real operation.  Report other contract changes to the backend owner.
 
 ## React to a backend contract change
 

@@ -48,6 +48,10 @@ run = "mkdir -p .agents/skills/stax && st --skill > .agents/skills/stax/SKILL.md
 description = "Start the Aspire stack (detached, non-interactive)"
 run = "aspire run --detach --non-interactive"
 
+[tasks.dev-mocks]
+description = "Run Vite with contract stub mocks"
+run = "VITE_MOCK_API=1 npm run dev --prefix src/app"
+
 [tasks.down]
 description = "Stop the Aspire stack"
 run = "aspire stop"

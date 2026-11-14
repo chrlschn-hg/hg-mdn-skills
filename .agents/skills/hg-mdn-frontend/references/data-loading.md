@@ -1,5 +1,7 @@
 # Loading and Saving Data
 
+Use contract-generated MSW handlers to test queries and mutations through the real client.  See [mocking.md](mocking.md).
+
 Server state is anything the backend owns: lists, records, the signed-in user.  **Read it with `useQuery`, write it with `useMutation`**, both from [Pinia Colada](https://pinia-colada.esm.dev/llms.txt).  The library keeps a cache, shares one request between callers, aborts a request once nothing waits for it, and keeps old data on screen while it refreshes.  Do not write that code by hand.
 
 Random-looking front-end bugs are usually load concurrency: a slow response overwrites a newer one, three components fire the same request, a poll piles up behind a slow server.  The library removes each of them when the **query key** holds every input.  Client state (selection, preferences) is a different thing: `state-pinia.md`.

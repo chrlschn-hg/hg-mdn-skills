@@ -1,5 +1,7 @@
 # Configuration, Build, and Deployment
 
+Set `VITE_MOCK_API=1` for stub operations or `VITE_MOCK_API=all` for all operations in development.  Commit the MSW worker, but remove it from production output.  See [mocking.md](mocking.md).
+
 How the front-end is configured, built, and shipped.  **One origin by default:** the API lives under `/api`, the .NET runtime serves the built front-end at `/` (one container), and in development Vite proxies `/api` to the backend.  The browser never calls across origins, so there is no CORS, cookie authentication just works, and the generated client has no base URL.  Hosting the front-end apart from the API is the alternative (below).
 
 | Shape | API calls | Hosting | Use when |
@@ -21,6 +23,7 @@ Vite reads `.env`, `.env.<mode>`, and `.env.local` files and the process environ
 interface ImportMetaEnv {
   /** Backend origin for the generated client; unset (the default) means same-origin `/api`. */
   readonly VITE_API_BASE_URL?: string;
+  readonly VITE_MOCK_API?: string;
 }
 
 interface ImportMeta {
